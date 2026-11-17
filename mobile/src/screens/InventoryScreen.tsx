@@ -21,6 +21,7 @@ import {
   StatusPill,
 } from '../components/CommonUI';
 import { QuickAddProductModal } from '../components/QuickAddProductModal';
+import { RestockSlideModal } from '../components/RestockSlideModal';
 import { api, isOfflineNetworkError } from '../services/apiClient';
 import { useAuthStore } from '../store/authStore';
 import { useOfflineQueueStore } from '../store/offlineQueueStore';
@@ -46,15 +47,19 @@ const ProductCard = React.memo(
   ({
     item,
     liteMode,
+    isManager,
     onSelect,
     onQuickDeduct,
     onBreakPack,
+    onRestock,
   }: {
     item: Product;
     liteMode: boolean;
+    isManager: boolean;
     onSelect: (p: Product) => void;
     onQuickDeduct: (p: Product) => void;
     onBreakPack: (p: Product) => void;
+    onRestock: (p: Product) => void;
   }) => {
     const theme = useTheme();
     const isLow = item.current_stock <= item.min_stock_level;
@@ -138,23 +143,44 @@ const ProductCard = React.memo(
           <Text style={[styles.subInfo, { color: theme.textMuted }]}>
             Tối thiểu: {formatNumber(item.min_stock_level)} {item.unit}
           </Text>
-          <Pressable
-            onPress={() => onQuickDeduct(item)}
-            accessibilityRole="button"
-            accessibilityLabel={`Xuất nhanh 1 ${item.unit} ${item.name}`}
-            android_ripple={{ color: theme.ripple }}
-            style={({ pressed }) => [
-              styles.quickMinusBtn,
-              {
-                backgroundColor: theme.surfaceAlt,
-                borderColor: theme.border,
-                opacity: pressed ? 0.75 : 1,
-              },
-            ]}
-          >
-            <Ionicons name="remove-circle-outline" size={18} color={theme.danger} />
-            <Text style={[styles.quickMinusText, { color: theme.text }]}>-1 {item.unit}</Text>
-          </Pressable>
+          <View style={styles.footerActions}>
+            {isManager ? (
+              <Pressable
+                onPress={() => onRestock(item)}
+                accessibilityRole="button"
+                accessibilityLabel={`Nhập thêm hàng cho ${item.name}`}
+                android_ripple={{ color: theme.ripple }}
+                style={({ pressed }) => [
+                  styles.quickMinusBtn,
+                  {
+                    backgroundColor: theme.primarySoft,
+                    borderColor: theme.primary,
+                    opacity: pressed ? 0.78 : 1,
+                  },
+                ]}
+              >
+                <Ionicons name="add-circle-outline" size={18} color={theme.primary} />
+                <Text style={[styles.quickMinusText, { color: theme.primary }]}>+ Nhập</Text>
+              </Pressable>
+            ) : null}
+            <Pressable
+              onPress={() => onQuickDeduct(item)}
+              accessibilityRole="button"
+              accessibilityLabel={`Xuất nhanh 1 ${item.unit} ${item.name}`}
+              android_ripple={{ color: theme.ripple }}
+              style={({ pressed }) => [
+                styles.quickMinusBtn,
+                {
+                  backgroundColor: theme.surfaceAlt,
+                  borderColor: theme.border,
+                  opacity: pressed ? 0.75 : 1,
+                },
+              ]}
+            >
+              <Ionicons name="remove-circle-outline" size={18} color={theme.danger} />
+              <Text style={[styles.quickMinusText, { color: theme.text }]}>-1 {item.unit}</Text>
+            </Pressable>
+          </View>
         </View>
       </Pressable>
     );
@@ -196,6 +222,7 @@ export function InventoryScreen() {
   const [scannerOpen, setScannerOpen] = useState(false);
   const [quickAddOpen, setQuickAddOpen] = useState(false);
   const [selectedProduct, setSelectedProduct] = useState<Product | null>(null);
+  const [restockTarget, setRestockTarget] = useState<Product | null>(null);
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [deleting, setDeleting] = useState(false);
   const [bannerMsg, setBannerMsg] = useState<string | null>(null);
@@ -315,15 +342,17 @@ export function InventoryScreen() {
       <ProductCard
         item={item}
         liteMode={Boolean(store?.lite_mode)}
+        isManager={isManager}
         onSelect={(p) => {
           setConfirmDelete(false);
           setSelectedProduct(p);
         }}
         onQuickDeduct={(p) => void handleQuickDeduct(p)}
         onBreakPack={(p) => void handleBreakPack(p)}
+        onRestock={(p) => setRestockTarget(p)}
       />
     ),
-    [store?.lite_mode, handleQuickDeduct, handleBreakPack],
+    [store?.lite_mode, isManager, handleQuickDeduct, handleBreakPack],
   );
 
   const productKey = useCallback((item: Product) => String(item.id), []);
@@ -417,6 +446,27 @@ export function InventoryScreen() {
           void queryClient.invalidateQueries({ queryKey: ['products'] });
           void queryClient.invalidateQueries({ queryKey: ['forecast-overview'] });
         }}
+        onRestockExisting={
+          isManager
+            ? (productId) => {
+                const found = (productsQuery.data || []).find((p) => p.id === productId);
+                if (found) {
+                  setQuickAddOpen(false);
+                  setRestockTarget(found);
+                }
+              }
+            : undefined
+        }
+      />
+
+      <RestockSlideModal
+        visible={Boolean(restockTarget)}
+        product={restockTarget}
+        onClose={() => setRestockTarget(null)}
+        onSuccess={(msg) => {
+          setRestockTarget(null);
+          setBannerMsg(msg);
+        }}
       />
 
       <Modal
@@ -467,9 +517,22 @@ export function InventoryScreen() {
                   Kệ: {selectedProduct.shelf_location || 'Chưa gán'} · NCC:{' '}
                   {selectedProduct.supplier_name || 'Chưa gán'}
                 </Text>
+                {isManager ? (
+                  <ActionButton
+                    label={`+ Nhập thêm ${selectedProduct.unit} (Thanh kéo & Điền số)`}
+                    icon="add-circle-outline"
+                    onPress={() => {
+                      const target = selectedProduct;
+                      setConfirmDelete(false);
+                      setSelectedProduct(null);
+                      setRestockTarget(target);
+                    }}
+                  />
+                ) : null}
                 <ActionButton
                   label={`Trừ nhanh 1 ${selectedProduct.unit} tiêu thụ`}
                   icon="remove-circle-outline"
+                  variant="outline"
                   onPress={() => {
                     void handleQuickDeduct(selectedProduct);
                     setConfirmDelete(false);
@@ -596,6 +659,12 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     alignItems: 'center',
     marginTop: SPACING.xs,
+    gap: SPACING.sm,
+  },
+  footerActions: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: SPACING.sm,
   },
   subInfo: { fontSize: 13 },
   quickMinusBtn: {
