@@ -12,7 +12,7 @@ class Settings(BaseSettings):
     jwt_secret: str = "CHANGE_ME_LOCAL_DEV_KEY_9f4b2a1c"
     jwt_algorithm: str = "HS256"
     access_token_expire_minutes: int = 720
-    auto_seed_demo: bool = True
+    auto_seed_demo: bool = False
 
     model_config = SettingsConfigDict(
         env_prefix="WMS_",

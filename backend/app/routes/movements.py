@@ -8,7 +8,7 @@ from sqlalchemy.orm import Session
 
 from app.core.database import get_db
 from app.core.security import get_current_user
-from app.models.entities import StockMovement, User, utcnow_naive
+from app.models.entities import Product, StockMovement, User, utcnow_naive
 from app.schemas.api import (
     BatchMovementRequest,
     BatchMovementResponse,
@@ -48,8 +48,15 @@ def list_movements(
     days: int | None = Query(default=None, ge=1, le=3650),
     limit: int = Query(default=100, ge=1, le=500),
 ) -> list[StockMovementOut]:
-    """List recent immutable stock movements for the current store."""
-    query = select(StockMovement).where(StockMovement.store_id == current_user.store_id)
+    """List recent immutable stock movements for active products in the current store."""
+    query = (
+        select(StockMovement)
+        .join(Product, StockMovement.product_id == Product.id)
+        .where(
+            StockMovement.store_id == current_user.store_id,
+            Product.is_active.is_(True),
+        )
+    )
     if product_id is not None:
         query = query.where(StockMovement.product_id == product_id)
     if movement_type:

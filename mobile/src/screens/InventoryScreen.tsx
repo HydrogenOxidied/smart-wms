@@ -21,41 +21,28 @@ import {
   StatusPill,
 } from '../components/CommonUI';
 import { QuickAddProductModal } from '../components/QuickAddProductModal';
-import { api, isOfflineNetworkError } from '../services/apiClient';
+import { api } from '../services/apiClient';
 import { useAuthStore } from '../store/authStore';
-import { useOfflineQueueStore } from '../store/offlineQueueStore';
+import { useUiStore } from '../store/uiStore';
 import { RADIUS, SPACING, TOUCH_MIN } from '../theme/tokens';
 import { useTheme } from '../theme/useTheme';
 import { Product, StockMovement } from '../types/wms';
-import {
-  createIdempotencyKey,
-  formatNumber,
-  formatShortDate,
-  triggerLightHaptic,
-  triggerSuccessHaptic,
-} from '../utils/formatters';
-
-const FILTER_OPTIONS: ChipOption[] = [
-  { key: 'ALL', label: 'Tất cả' },
-  { key: 'LOW', label: 'Sắp hết' },
-  { key: 'PACK_BREAK', label: 'Xé lẻ Thùng/Bịch' },
-  { key: 'CONSUMABLE', label: 'Vật tư nhỏ lẻ' },
-];
+import { formatNumber, formatShortDate, triggerSuccessHaptic } from '../utils/formatters';
 
 function getMovementLabel(item: StockMovement): string {
   switch (item.movement_type) {
     case 'IN_PURCHASE':
       return 'Chủ nhập kho (+)';
     case 'OUT_CONSUMPTION':
-      return item.user_role === 'STAFF' ? 'Nhân viên tiêu hao (-)' : 'Tiêu hao (-)';
+      return item.user_role === 'STAFF' ? 'NV tiêu hao (-)' : 'Tiêu hao (-)';
     case 'OUT_DAMAGE_EXPIRED':
-      return 'Báo hỏng / Hủy (-)';
+      return 'Hỏng / Hủy (-)';
     case 'REVERSAL':
-      return 'Hoàn tác đính chính';
+      return 'Hoàn tác';
     case 'PACK_BREAK':
-      return 'Khui thùng / Xé lẻ';
+      return 'Khui thùng';
     case 'ADJUST_STOCKTAKE':
-      return 'Cân bằng kiểm kê';
+      return 'Kiểm kê';
     default:
       return item.movement_type;
   }
@@ -66,13 +53,11 @@ const ProductCard = React.memo(
     item,
     liteMode,
     onSelect,
-    onQuickDeduct,
     onBreakPack,
   }: {
     item: Product;
     liteMode: boolean;
     onSelect: (p: Product) => void;
-    onQuickDeduct: (p: Product) => void;
     onBreakPack: (p: Product) => void;
   }) => {
     const theme = useTheme();
@@ -105,9 +90,8 @@ const ProductCard = React.memo(
               {item.name}
             </Text>
             <Text style={[styles.itemMeta, { color: theme.textMuted }]}>
-              {liteMode
-                ? `${item.category}`
-                : `${item.sku} · ${item.shelf_location || 'Chưa gán kệ'} · ${item.barcode || 'Nội bộ'}`}
+              {item.sku} · Tối thiểu: {formatNumber(item.min_stock_level)} {item.unit}
+              {!liteMode && item.shelf_location ? ` · Kệ ${item.shelf_location}` : ''}
             </Text>
           </View>
           <StatusPill
@@ -123,16 +107,15 @@ const ProductCard = React.memo(
               tone={isLow ? 'danger' : gaugeRatio < 0.35 ? 'warning' : 'primary'}
             />
             <Text style={[styles.subInfo, { color: theme.textMuted }]}>
-              Vật tư ước lượng: ~{Math.round(gaugeRatio * 100)}% (Đầy: {formatNumber(capRef)} {item.unit})
+              Ước lượng: ~{Math.round(gaugeRatio * 100)}% ({formatNumber(capRef)} {item.unit})
             </Text>
           </View>
         ) : null}
 
         {item.tracking_type === 'PACK_BREAK' && item.pack_unit ? (
-          <View style={styles.packRow}>
-            <Text style={[styles.subInfo, { color: theme.secondary }]}>
-              {item.sealed_packs} {item.pack_unit} nguyên + {formatNumber(looseQty)} {item.unit} lẻ (1{' '}
-              {item.pack_unit} = {item.pack_conversion_rate} {item.unit})
+          <View style={styles.packFooter}>
+            <Text style={[styles.subInfo, { color: theme.secondary, flex: 1 }]}>
+              {item.sealed_packs} {item.pack_unit} nguyên + {formatNumber(looseQty)} {item.unit} lẻ
             </Text>
             {item.sealed_packs > 0 ? (
               <Pressable
@@ -152,29 +135,6 @@ const ProductCard = React.memo(
             ) : null}
           </View>
         ) : null}
-
-        <View style={styles.cardFooter}>
-          <Text style={[styles.subInfo, { color: theme.textMuted }]}>
-            Tối thiểu: {formatNumber(item.min_stock_level)} {item.unit}
-          </Text>
-          <Pressable
-            onPress={() => onQuickDeduct(item)}
-            accessibilityRole="button"
-            accessibilityLabel={`Xuất nhanh 1 ${item.unit} ${item.name}`}
-            android_ripple={{ color: theme.ripple }}
-            style={({ pressed }) => [
-              styles.quickMinusBtn,
-              {
-                backgroundColor: theme.surfaceAlt,
-                borderColor: theme.border,
-                opacity: pressed ? 0.75 : 1,
-              },
-            ]}
-          >
-            <Ionicons name="remove-circle-outline" size={18} color={theme.danger} />
-            <Text style={[styles.quickMinusText, { color: theme.text }]}>-1 {item.unit}</Text>
-          </Pressable>
-        </View>
       </Pressable>
     );
   },
@@ -212,8 +172,8 @@ export function InventoryScreen() {
   const queryClient = useQueryClient();
   const user = useAuthStore((s) => s.user);
   const store = useAuthStore((s) => s.store);
+  const openMovementForProduct = useUiStore((s) => s.openMovementForProduct);
   const isManager = user?.role === 'MANAGER';
-  const enqueueMovement = useOfflineQueueStore((s) => s.enqueueMovement);
 
   const [searchText, setSearchText] = useState('');
   const [filterKey, setFilterKey] = useState('ALL');
@@ -235,13 +195,26 @@ export function InventoryScreen() {
     enabled: Boolean(selectedProduct),
   });
 
+  const products = productsQuery.data || [];
+
+  const filterOptions = useMemo<ChipOption[]>(() => {
+    const lowCount = products.filter((p) => p.current_stock <= p.min_stock_level).length;
+    const packCount = products.filter((p) => p.tracking_type === 'PACK_BREAK').length;
+    const base: ChipOption[] = [
+      { key: 'ALL', label: `Tất cả (${products.length})` },
+      { key: 'LOW', label: `Sắp hết (${lowCount})` },
+    ];
+    if (packCount > 0) {
+      base.push({ key: 'PACK_BREAK', label: `Thùng / Bịch (${packCount})` });
+    }
+    return base;
+  }, [products]);
+
   const filteredProducts = useMemo(() => {
-    const raw = productsQuery.data || [];
     const q = searchText.trim().toLowerCase();
-    return raw.filter((item) => {
+    return products.filter((item) => {
       if (filterKey === 'LOW' && item.current_stock > item.min_stock_level) return false;
       if (filterKey === 'PACK_BREAK' && item.tracking_type !== 'PACK_BREAK') return false;
-      if (filterKey === 'CONSUMABLE' && item.tracking_type !== 'CONSUMABLE') return false;
       if (!q) return true;
       return (
         item.name.toLowerCase().includes(q) ||
@@ -249,52 +222,21 @@ export function InventoryScreen() {
         (item.barcode && item.barcode.includes(q))
       );
     });
-  }, [productsQuery.data, searchText, filterKey]);
-
-  const handleQuickDeduct = useCallback(
-    async (prod: Product) => {
-      await triggerLightHaptic();
-      const payload = {
-        product_id: prod.id,
-        movement_type: 'OUT_CONSUMPTION' as const,
-        quantity: 1,
-        unit_mode: 'BASE' as const,
-        note: 'Trừ nhanh từ danh sách kho',
-        idempotency_key: createIdempotencyKey('inv-quick'),
-      };
-      try {
-        await api.createMovement(payload);
-        await triggerSuccessHaptic();
-        setBannerMsg(`Đã trừ 1 ${prod.unit} "${prod.name}".`);
-        void queryClient.invalidateQueries({ queryKey: ['products'] });
-        void queryClient.invalidateQueries({ queryKey: ['forecast-overview'] });
-        void queryClient.invalidateQueries({ queryKey: ['movements'] });
-        void queryClient.invalidateQueries({ queryKey: ['movements-summary'] });
-      } catch (err) {
-        if (isOfflineNetworkError(err)) {
-          await enqueueMovement(prod.name, prod.unit, payload);
-          setBannerMsg(`Mất mạng: Đã lưu trừ 1 ${prod.unit} "${prod.name}" vào hàng đợi Offline.`);
-        } else {
-          setBannerMsg(err instanceof Error ? err.message : 'Không thể trừ kho.');
-        }
-      }
-    },
-    [enqueueMovement, queryClient],
-  );
+  }, [products, searchText, filterKey]);
 
   const handleBreakPack = useCallback(
     async (prod: Product) => {
       try {
-        await api.breakPack(prod.id, 1, createIdempotencyKey('break'));
+        await api.breakPack(prod.id, 1, `break-${Date.now()}-${prod.id}`);
         await triggerSuccessHaptic();
         setBannerMsg(
-          `Đã khui 1 ${prod.pack_unit} "${prod.name}" thành ${prod.pack_conversion_rate} ${prod.unit} lẻ.`,
+          `Đã khui 1 ${prod.pack_unit} "${prod.name}" (+${prod.pack_conversion_rate} ${prod.unit} lẻ).`,
         );
         void queryClient.invalidateQueries({ queryKey: ['products'] });
         void queryClient.invalidateQueries({ queryKey: ['movements'] });
         void queryClient.invalidateQueries({ queryKey: ['movements-summary'] });
       } catch (err) {
-        setBannerMsg(err instanceof Error ? err.message : 'Không thể khui bịch.');
+        setBannerMsg(err instanceof Error ? err.message : 'Không thể khui bao bì.');
       }
     },
     [queryClient],
@@ -304,17 +246,17 @@ export function InventoryScreen() {
     (code: string) => {
       setScannerOpen(false);
       setSearchText(code);
-      const found = (productsQuery.data || []).find(
+      const found = products.find(
         (p) => p.barcode === code || p.sku.toUpperCase() === code.toUpperCase(),
       );
       if (found) {
         setConfirmDelete(false);
         setSelectedProduct(found);
       } else {
-        setBannerMsg(`Không tìm thấy mã "${code}". Bấm "+ Thêm nhanh" để tạo mới.`);
+        setBannerMsg(`Không tìm thấy mã "${code}". Bấm "+ Thêm mặt hàng" để tạo mới.`);
       }
     },
-    [productsQuery.data],
+    [products],
   );
 
   const handleDeleteProduct = useCallback(async () => {
@@ -326,7 +268,7 @@ export function InventoryScreen() {
       const deletedName = selectedProduct.name;
       setConfirmDelete(false);
       setSelectedProduct(null);
-      setBannerMsg(`Đã xóa mặt hàng "${deletedName}" khỏi danh sách quản lý kho.`);
+      setBannerMsg(`Đã xóa "${deletedName}" khỏi kho.`);
       void queryClient.invalidateQueries({ queryKey: ['products'] });
       void queryClient.invalidateQueries({ queryKey: ['forecast-overview'] });
       void queryClient.invalidateQueries({ queryKey: ['movements'] });
@@ -347,11 +289,10 @@ export function InventoryScreen() {
           setConfirmDelete(false);
           setSelectedProduct(p);
         }}
-        onQuickDeduct={(p) => void handleQuickDeduct(p)}
         onBreakPack={(p) => void handleBreakPack(p)}
       />
     ),
-    [store?.lite_mode, handleQuickDeduct, handleBreakPack],
+    [store?.lite_mode, handleBreakPack],
   );
 
   const productKey = useCallback((item: Product) => String(item.id), []);
@@ -364,16 +305,21 @@ export function InventoryScreen() {
     <View style={[styles.container, { backgroundColor: theme.bg }]}>
       <View style={[styles.searchBarWrap, { backgroundColor: theme.surface, borderBottomColor: theme.border }]}>
         <View style={styles.searchRow}>
-          <TextInput
-            value={searchText}
-            onChangeText={setSearchText}
-            placeholder="Tìm tên, SKU hoặc mã vạch..."
-            placeholderTextColor={theme.textMuted}
+          <View
             style={[
-              styles.searchInput,
-              { backgroundColor: theme.surfaceAlt, color: theme.text, borderColor: theme.border },
+              styles.searchBox,
+              { backgroundColor: theme.surfaceAlt, borderColor: theme.border },
             ]}
-          />
+          >
+            <Ionicons name="search-outline" size={18} color={theme.textMuted} />
+            <TextInput
+              value={searchText}
+              onChangeText={setSearchText}
+              placeholder="Tìm tên, SKU hoặc mã vạch..."
+              placeholderTextColor={theme.textMuted}
+              style={[styles.searchInput, { color: theme.text }]}
+            />
+          </View>
           <Pressable
             onPress={() => setScannerOpen(true)}
             accessibilityRole="button"
@@ -384,10 +330,10 @@ export function InventoryScreen() {
               { backgroundColor: theme.primary, opacity: pressed ? 0.85 : 1 },
             ]}
           >
-            <Ionicons name="barcode-outline" size={24} color={theme.primaryTextOn} />
+            <Ionicons name="barcode-outline" size={22} color={theme.primaryTextOn} />
           </Pressable>
         </View>
-        <ChipRow options={FILTER_OPTIONS} selectedKey={filterKey} onSelect={setFilterKey} />
+        <ChipRow options={filterOptions} selectedKey={filterKey} onSelect={setFilterKey} />
         {bannerMsg ? (
           <Text style={[styles.bannerText, { color: theme.secondary }]}>{bannerMsg}</Text>
         ) : null}
@@ -407,8 +353,14 @@ export function InventoryScreen() {
         }
         ListEmptyComponent={
           <View style={styles.emptyBox}>
+            <Ionicons name="cube-outline" size={32} color={theme.textMuted} />
+            <Text style={[styles.emptyTitle, { color: theme.text }]}>
+              {products.length === 0 ? 'Kho chưa có mặt hàng nào' : 'Không tìm thấy mặt hàng'}
+            </Text>
             <Text style={[styles.subInfo, { color: theme.textMuted }]}>
-              Chưa có mặt hàng khớp bộ lọc.
+              {products.length === 0
+                ? 'Nhấn nút "+ Thêm mặt hàng" bên dưới để bắt đầu.'
+                : 'Thử từ khóa khác hoặc chọn bộ lọc Tất cả.'}
             </Text>
           </View>
         }
@@ -417,20 +369,20 @@ export function InventoryScreen() {
       <Pressable
         onPress={() => setQuickAddOpen(true)}
         accessibilityRole="button"
-        accessibilityLabel="Thêm nhanh mặt hàng mới"
+        accessibilityLabel="Thêm mặt hàng mới"
         android_ripple={{ color: theme.ripple }}
         style={({ pressed }) => [
           styles.fab,
           { backgroundColor: theme.primary, opacity: pressed ? 0.88 : 1 },
         ]}
       >
-        <Ionicons name="add" size={24} color={theme.primaryTextOn} />
-        <Text style={[styles.fabText, { color: theme.primaryTextOn }]}>Thêm nhanh (5s)</Text>
+        <Ionicons name="add" size={22} color={theme.primaryTextOn} />
+        <Text style={[styles.fabText, { color: theme.primaryTextOn }]}>Thêm mặt hàng</Text>
       </Pressable>
 
       <BarcodeScannerModal
         visible={scannerOpen}
-        title="Quét mã tìm nhanh trong kho"
+        title="Quét mã tìm sản phẩm"
         onScan={handleScanLookup}
         onClose={() => setScannerOpen(false)}
       />
@@ -441,7 +393,7 @@ export function InventoryScreen() {
         onClose={() => setQuickAddOpen(false)}
         onCreated={(prod) => {
           setQuickAddOpen(false);
-          setBannerMsg(`Đã thêm "${prod.name}" (SKU: ${prod.sku}).`);
+          setBannerMsg(`Đã thêm "${prod.name}" (${prod.sku}).`);
           void queryClient.invalidateQueries({ queryKey: ['products'] });
           void queryClient.invalidateQueries({ queryKey: ['forecast-overview'] });
           void queryClient.invalidateQueries({ queryKey: ['movements'] });
@@ -458,30 +410,32 @@ export function InventoryScreen() {
         }}
       >
         <SafeAreaView style={[styles.container, { backgroundColor: theme.bg }]}>
-          <View style={[styles.modalHeader, { backgroundColor: theme.surface, borderBottomColor: theme.border }]}>
-            <View style={styles.flexOne}>
-              <Text style={[styles.itemName, { color: theme.text }]} numberOfLines={1}>
-                {selectedProduct?.name}
-              </Text>
-              <Text style={[styles.itemMeta, { color: theme.textMuted }]}>
-                SKU: {selectedProduct?.sku} · Barcode: {selectedProduct?.barcode}
-              </Text>
+          <View style={[styles.modalHeaderWrap, { backgroundColor: theme.surface, borderBottomColor: theme.border }]}>
+            <View style={styles.modalHeaderInner}>
+              <View style={styles.flexOne}>
+                <Text style={[styles.itemName, { color: theme.text }]} numberOfLines={1}>
+                  {selectedProduct?.name}
+                </Text>
+                <Text style={[styles.itemMeta, { color: theme.textMuted }]}>
+                  {selectedProduct?.sku} · Barcode: {selectedProduct?.barcode}
+                </Text>
+              </View>
+              <Pressable
+                onPress={() => {
+                  setConfirmDelete(false);
+                  setSelectedProduct(null);
+                }}
+                accessibilityRole="button"
+                accessibilityLabel="Đóng chi tiết sản phẩm"
+                android_ripple={{ color: theme.ripple }}
+                style={({ pressed }) => [
+                  styles.scanIconBtn,
+                  { backgroundColor: theme.surfaceAlt, opacity: pressed ? 0.75 : 1 },
+                ]}
+              >
+                <Ionicons name="close" size={22} color={theme.text} />
+              </Pressable>
             </View>
-            <Pressable
-              onPress={() => {
-                setConfirmDelete(false);
-                setSelectedProduct(null);
-              }}
-              accessibilityRole="button"
-              accessibilityLabel="Đóng chi tiết sản phẩm"
-              android_ripple={{ color: theme.ripple }}
-              style={({ pressed }) => [
-                styles.scanIconBtn,
-                { backgroundColor: theme.surfaceAlt, opacity: pressed ? 0.75 : 1 },
-              ]}
-            >
-              <Ionicons name="close" size={24} color={theme.text} />
-            </Pressable>
           </View>
 
           {selectedProduct ? (
@@ -494,17 +448,17 @@ export function InventoryScreen() {
                   </Text>
                 </View>
                 <Text style={[styles.subInfo, { color: theme.textMuted }]}>
-                  Kệ: {selectedProduct.shelf_location || 'Chưa gán'} · NCC:{' '}
-                  {selectedProduct.supplier_name || 'Chưa gán'}
+                  Tối thiểu: {formatNumber(selectedProduct.min_stock_level)} {selectedProduct.unit} · Kệ:{' '}
+                  {selectedProduct.shelf_location || '—'} · NCC: {selectedProduct.supplier_name || '—'}
                 </Text>
                 <ActionButton
-                  label={`Trừ nhanh 1 ${selectedProduct.unit} tiêu thụ`}
-                  icon="remove-circle-outline"
-                  variant="outline"
+                  label="Xuất / Nhập mặt hàng này →"
+                  icon="swap-vertical-outline"
                   onPress={() => {
-                    void handleQuickDeduct(selectedProduct);
+                    const pid = selectedProduct.id;
                     setConfirmDelete(false);
                     setSelectedProduct(null);
+                    openMovementForProduct(pid);
                   }}
                 />
                 {isManager ? (
@@ -516,7 +470,7 @@ export function InventoryScreen() {
                       ]}
                     >
                       <Text style={[styles.subInfo, { color: theme.text }]}>
-                        Xóa "{selectedProduct.name}" khỏi danh sách kho & dự báo? (Lịch sử sổ cái cũ vẫn được giữ để đối soát).
+                        Xóa "{selectedProduct.name}" khỏi danh sách kho?
                       </Text>
                       <View style={styles.confirmRow}>
                         <ActionButton
@@ -537,7 +491,7 @@ export function InventoryScreen() {
                     </View>
                   ) : (
                     <ActionButton
-                      label="Xóa mặt hàng khỏi kho"
+                      label="Xóa mặt hàng"
                       icon="trash-outline"
                       variant="danger"
                       onPress={() => setConfirmDelete(true)}
@@ -546,14 +500,17 @@ export function InventoryScreen() {
                 ) : null}
               </View>
 
-              <Text style={[styles.ledgerHeader, { color: theme.text }]}>
-                Sổ cái biến động kho gần nhất (Bất biến)
-              </Text>
+              <Text style={[styles.ledgerHeader, { color: theme.text }]}>Lịch sử gần nhất</Text>
               <FlatList
                 data={detailLedgerQuery.data || []}
                 renderItem={renderLedger}
                 keyExtractor={(m) => String(m.id)}
                 contentContainerStyle={styles.ledgerList}
+                ListEmptyComponent={
+                  <Text style={[styles.subInfo, { color: theme.textMuted }]}>
+                    Chưa có giao dịch nào.
+                  </Text>
+                }
               />
             </View>
           ) : null}
@@ -576,12 +533,19 @@ const styles = StyleSheet.create({
     gap: SPACING.sm,
     alignItems: 'center',
   },
-  searchInput: {
+  searchBox: {
     flex: 1,
     minHeight: TOUCH_MIN,
     borderRadius: RADIUS.md,
     borderWidth: 1,
     paddingHorizontal: SPACING.md,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: SPACING.sm,
+  },
+  searchInput: {
+    flex: 1,
+    minHeight: TOUCH_MIN,
     fontSize: 15,
   },
   scanIconBtn: {
@@ -609,44 +573,37 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     gap: SPACING.sm,
   },
-  itemName: { fontSize: 16, fontWeight: '600' },
+  itemName: { fontSize: 15, fontWeight: '600' },
   itemMeta: { fontSize: 12, marginTop: 2 },
   gaugeSection: { gap: SPACING.xs, marginTop: SPACING.xs },
-  packRow: { gap: SPACING.xs, marginTop: SPACING.xs },
+  packFooter: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    gap: SPACING.sm,
+    marginTop: SPACING.xs,
+  },
   smallActionBtn: {
     minHeight: TOUCH_MIN,
     borderRadius: RADIUS.md,
     paddingHorizontal: SPACING.md,
     justifyContent: 'center',
     alignItems: 'center',
-    alignSelf: 'flex-start',
   },
   smallActionText: { fontSize: 13, fontWeight: '600' },
-  cardFooter: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    marginTop: SPACING.xs,
-    gap: SPACING.sm,
-  },
   subInfo: { fontSize: 13 },
-  quickMinusBtn: {
-    minHeight: TOUCH_MIN,
-    minWidth: TOUCH_MIN,
-    paddingHorizontal: SPACING.md,
-    borderRadius: RADIUS.md,
-    borderWidth: 1,
-    flexDirection: 'row',
+  emptyBox: {
+    paddingVertical: SPACING.xl,
+    paddingHorizontal: SPACING.lg,
     alignItems: 'center',
     gap: SPACING.xs,
   },
-  quickMinusText: { fontSize: 13, fontWeight: '600' },
-  emptyBox: { padding: SPACING.xl, alignItems: 'center' },
+  emptyTitle: { fontSize: 16, fontWeight: '600', marginTop: SPACING.xs },
   fab: {
     position: 'absolute',
     right: SPACING.lg,
     bottom: SPACING.lg,
-    minHeight: 54,
+    minHeight: 52,
     borderRadius: RADIUS.full,
     paddingHorizontal: SPACING.lg,
     flexDirection: 'row',
@@ -654,22 +611,30 @@ const styles = StyleSheet.create({
     gap: SPACING.sm,
     elevation: 4,
   },
-  fabText: { fontSize: 15, fontWeight: '600' },
-  modalHeader: {
+  fabText: { fontSize: 14, fontWeight: '700' },
+  modalHeaderWrap: {
+    borderBottomWidth: 1,
+  },
+  modalHeaderInner: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
     padding: SPACING.lg,
-    borderBottomWidth: 1,
     gap: SPACING.md,
+    maxWidth: 760,
+    width: '100%',
+    alignSelf: 'center',
   },
   detailWrap: {
     flex: 1,
     padding: SPACING.lg,
     gap: SPACING.md,
+    maxWidth: 760,
+    width: '100%',
+    alignSelf: 'center',
   },
   bigStock: { fontSize: 22, fontWeight: '700' },
-  ledgerHeader: { fontSize: 15, fontWeight: '600' },
+  ledgerHeader: { fontSize: 14, fontWeight: '600' },
   ledgerList: { gap: SPACING.sm },
   ledgerRow: {
     borderRadius: RADIUS.md,

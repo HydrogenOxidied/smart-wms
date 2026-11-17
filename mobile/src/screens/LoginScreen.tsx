@@ -21,11 +21,11 @@ import { TemplateKey } from '../types/wms';
 import { triggerSuccessHaptic } from '../utils/formatters';
 
 const TEMPLATE_OPTIONS: ChipOption[] = [
+  { key: 'EMPTY', label: 'Kho trống (Tự thêm)' },
   { key: 'MAM_TEP', label: 'Shop Mắm Tép' },
   { key: 'CAFE_BAKERY', label: 'Tiệm Bánh & Cafe' },
   { key: 'MINI_MART', label: 'Tạp hóa Mini' },
   { key: 'HARDWARE', label: 'Kim khí / Điện nước' },
-  { key: 'EMPTY', label: 'Kho trống' },
 ];
 
 export function LoginScreen() {
@@ -46,7 +46,7 @@ export function LoginScreen() {
   const [newMgrSecret, setNewMgrSecret] = useState('');
   const [newStaffUser, setNewStaffUser] = useState('');
   const [newStaffSecret, setNewStaffSecret] = useState('');
-  const [selectedTemplate, setSelectedTemplate] = useState<TemplateKey>('MAM_TEP');
+  const [selectedTemplate, setSelectedTemplate] = useState<TemplateKey>('EMPTY');
 
   useEffect(() => {
     setServerUrl(getActiveBaseUrl());
@@ -60,7 +60,7 @@ export function LoginScreen() {
       await triggerSuccessHaptic();
       setServerStatus('Kết nối máy chủ thành công.');
     } catch {
-      setServerStatus('Không kết nối được tới máy chủ này. Kiểm tra IP LAN và cổng 8000.');
+      setServerStatus('Không kết nối được máy chủ. Kiểm tra lại URL.');
     }
   }, [serverUrl]);
 
@@ -87,7 +87,7 @@ export function LoginScreen() {
       } catch (err) {
         setErrorMsg(
           err instanceof Error
-            ? `${err.message} (Kiểm tra Backend đang chạy ở ${getActiveBaseUrl()})`
+            ? `${err.message} (${getActiveBaseUrl()})`
             : 'Không thể kết nối máy chủ demo.',
         );
       }
@@ -128,46 +128,18 @@ export function LoginScreen() {
     registerStore,
   ]);
 
-  const loginBlocks = ['hero', 'demo', 'form', 'server'];
+  const loginBlocks = ['hero', 'form', 'demo', 'server'];
 
   const renderLoginBlock = useCallback(
     ({ item }: { item: string }) => {
       if (item === 'hero') {
         return (
           <View style={styles.heroWrap}>
-            <View style={[styles.badgeRow]}>
-              <StatusPill text="Mobile-First WMS + AI" tone="primary" />
-            </View>
+            <StatusPill text="WMS + Dự báo AI" tone="primary" />
             <Text style={[styles.brandTitle, { color: theme.text }]}>PocketWMS</Text>
             <Text style={[styles.brandSub, { color: theme.textMuted }]}>
-              Quản lý kho linh hoạt từ tiệm nhỏ tới kho chuẩn, kiểm kê mù bằng mã vạch và dự báo nhập hàng 3 tầng.
+              Quản lý kho, xuất nhập & dự báo thông minh
             </Text>
-          </View>
-        );
-      }
-
-      if (item === 'demo') {
-        return (
-          <View style={[styles.card, { backgroundColor: theme.surface, borderColor: theme.primary }]}>
-            <Text style={[styles.sectionTitle, { color: theme.text }]}>
-              Trải nghiệm nhanh Dữ liệu mẫu (65 ngày)
-            </Text>
-            <Text style={[styles.helperText, { color: theme.textMuted }]}>
-              Kho mẫu: Tiệm Bánh & Cafe Mộc (10 mặt hàng, hàng xé lẻ, vật tư ước lượng %).
-            </Text>
-            <ActionButton
-              label="Vào nhanh: Chủ kho (Manager)"
-              icon="shield-checkmark-outline"
-              onPress={() => void handleDemo('MANAGER')}
-              loading={isLoading}
-            />
-            <ActionButton
-              label="Vào nhanh: Nhân viên kho (Staff)"
-              icon="barcode-outline"
-              variant="secondary"
-              onPress={() => void handleDemo('STAFF')}
-              loading={isLoading}
-            />
           </View>
         );
       }
@@ -175,38 +147,48 @@ export function LoginScreen() {
       if (item === 'form') {
         return (
           <View style={[styles.card, { backgroundColor: theme.surface, borderColor: theme.border }]}>
-            <Text style={[styles.sectionTitle, { color: theme.text }]}>Đăng nhập tài khoản riêng</Text>
-            <TextInput
-              value={username}
-              onChangeText={setUsername}
-              autoCapitalize="none"
-              placeholder="Tên đăng nhập"
-              placeholderTextColor={theme.textMuted}
-              style={[
-                styles.input,
-                { backgroundColor: theme.surfaceAlt, color: theme.text, borderColor: theme.border },
-              ]}
-            />
-            <TextInput
-              value={secret}
-              onChangeText={setSecret}
-              secureTextEntry
-              placeholder="Mật khẩu"
-              placeholderTextColor={theme.textMuted}
-              style={[
-                styles.input,
-                { backgroundColor: theme.surfaceAlt, color: theme.text, borderColor: theme.border },
-              ]}
-            />
+            <Text style={[styles.sectionTitle, { color: theme.text }]}>Đăng nhập</Text>
+
+            <View style={styles.fieldGroup}>
+              <Text style={[styles.fieldLabel, { color: theme.textMuted }]}>Tên đăng nhập</Text>
+              <TextInput
+                value={username}
+                onChangeText={setUsername}
+                autoCapitalize="none"
+                placeholder="Nhập tên tài khoản"
+                placeholderTextColor={theme.textMuted}
+                style={[
+                  styles.input,
+                  { backgroundColor: theme.surfaceAlt, color: theme.text, borderColor: theme.border },
+                ]}
+              />
+            </View>
+
+            <View style={styles.fieldGroup}>
+              <Text style={[styles.fieldLabel, { color: theme.textMuted }]}>Mật khẩu</Text>
+              <TextInput
+                value={secret}
+                onChangeText={setSecret}
+                secureTextEntry
+                placeholder="Nhập mật khẩu"
+                placeholderTextColor={theme.textMuted}
+                style={[
+                  styles.input,
+                  { backgroundColor: theme.surfaceAlt, color: theme.text, borderColor: theme.border },
+                ]}
+              />
+            </View>
+
             {errorMsg ? <Text style={[styles.errText, { color: theme.danger }]}>{errorMsg}</Text> : null}
+
             <ActionButton
               label="Đăng nhập"
-              variant="outline"
+              icon="log-in-outline"
               onPress={() => void handleLogin()}
               loading={isLoading}
             />
             <ActionButton
-              label="Tạo cửa hàng mới (Bộ mẫu 1 phút)"
+              label="Tạo cửa hàng mới"
               icon="add-circle-outline"
               variant="outline"
               onPress={() => {
@@ -214,6 +196,32 @@ export function LoginScreen() {
                 setRegisterModal(true);
               }}
             />
+          </View>
+        );
+      }
+
+      if (item === 'demo') {
+        return (
+          <View style={[styles.card, { backgroundColor: theme.surface, borderColor: theme.border }]}>
+            <Text style={[styles.subHeading, { color: theme.text }]}>Dùng thử kho mẫu (Demo)</Text>
+            <View style={styles.demoRow}>
+              <ActionButton
+                label="Chủ kho Demo"
+                icon="shield-checkmark-outline"
+                variant="secondary"
+                style={styles.flexOne}
+                onPress={() => void handleDemo('MANAGER')}
+                loading={isLoading}
+              />
+              <ActionButton
+                label="Nhân viên Demo"
+                icon="person-outline"
+                variant="outline"
+                style={styles.flexOne}
+                onPress={() => void handleDemo('STAFF')}
+                loading={isLoading}
+              />
+            </View>
           </View>
         );
       }
@@ -228,27 +236,26 @@ export function LoginScreen() {
             style={({ pressed }) => [styles.serverHeader, { opacity: pressed ? 0.75 : 1 }]}
           >
             <View style={styles.serverLabelWrap}>
-              <Ionicons name="server-outline" size={20} color={theme.secondary} />
-              <Text style={[styles.serverTitle, { color: theme.text }]}>
-                Máy chủ API ({getActiveBaseUrl()})
+              <Ionicons name="server-outline" size={18} color={theme.secondary} />
+              <Text style={[styles.serverTitle, { color: theme.textMuted }]} numberOfLines={1}>
+                API: {getActiveBaseUrl()}
               </Text>
             </View>
             <Ionicons
               name={showServerBox ? 'chevron-up' : 'chevron-down'}
-              size={20}
+              size={18}
               color={theme.textMuted}
             />
           </Pressable>
 
           {showServerBox ? (
             <View style={styles.serverBody}>
-              <Text style={[styles.helperText, { color: theme.textMuted }]}>
-                Khi mở trên điện thoại thật qua Expo Go, điền IP LAN của máy tính (VD: http://192.168.1.15:8000/api/v1).
-              </Text>
               <TextInput
                 value={serverUrl}
                 onChangeText={setServerUrl}
                 autoCapitalize="none"
+                placeholder="http://192.168.1.15:8000/api/v1"
+                placeholderTextColor={theme.textMuted}
                 style={[
                   styles.input,
                   { backgroundColor: theme.surfaceAlt, color: theme.text, borderColor: theme.border },
@@ -258,7 +265,7 @@ export function LoginScreen() {
                 <Text style={[styles.helperText, { color: theme.secondary }]}>{serverStatus}</Text>
               ) : null}
               <ActionButton
-                label="Lưu & Kiểm tra kết nối"
+                label="Lưu & Kiểm tra"
                 variant="secondary"
                 onPress={() => void handleSaveServer()}
               />
@@ -287,88 +294,101 @@ export function LoginScreen() {
   const renderRegisterSection = useCallback(
     () => (
       <View style={[styles.card, { backgroundColor: theme.surface, borderColor: theme.border }]}>
-        <Text style={[styles.fieldLabel, { color: theme.textMuted }]}>Tên cửa hàng / kho *</Text>
-        <TextInput
-          value={newStoreName}
-          onChangeText={setNewStoreName}
-          placeholder="Ví dụ: Tiệm Bánh Hạnh Phúc"
-          placeholderTextColor={theme.textMuted}
-          style={[
-            styles.input,
-            { backgroundColor: theme.surfaceAlt, color: theme.text, borderColor: theme.border },
-          ]}
-        />
+        <View style={styles.fieldGroup}>
+          <Text style={[styles.fieldLabel, { color: theme.textMuted }]}>Tên cửa hàng / kho *</Text>
+          <TextInput
+            value={newStoreName}
+            onChangeText={setNewStoreName}
+            placeholder="Ví dụ: Shop Mắm Tép Ba Làng"
+            placeholderTextColor={theme.textMuted}
+            style={[
+              styles.input,
+              { backgroundColor: theme.surfaceAlt, color: theme.text, borderColor: theme.border },
+            ]}
+          />
+        </View>
 
-        <Text style={[styles.fieldLabel, { color: theme.textMuted }]}>Chọn bộ danh mục mẫu khởi tạo</Text>
-        <ChipRow
-          options={TEMPLATE_OPTIONS}
-          selectedKey={selectedTemplate}
-          onSelect={(k) => setSelectedTemplate(k as TemplateKey)}
-        />
+        <View style={styles.fieldGroup}>
+          <Text style={[styles.fieldLabel, { color: theme.textMuted }]}>Dữ liệu khởi tạo</Text>
+          <ChipRow
+            options={TEMPLATE_OPTIONS}
+            selectedKey={selectedTemplate}
+            onSelect={(k) => setSelectedTemplate(k as TemplateKey)}
+          />
+        </View>
 
-        <Text style={[styles.fieldLabel, { color: theme.textMuted }]}>Tên đăng nhập Quản lý *</Text>
-        <TextInput
-          value={newMgrUser}
-          onChangeText={setNewMgrUser}
-          autoCapitalize="none"
-          placeholder="chu_shop"
-          placeholderTextColor={theme.textMuted}
-          style={[
-            styles.input,
-            { backgroundColor: theme.surfaceAlt, color: theme.text, borderColor: theme.border },
-          ]}
-        />
+        <View style={styles.fieldGroup}>
+          <Text style={[styles.fieldLabel, { color: theme.textMuted }]}>Tên đăng nhập Chủ kho *</Text>
+          <TextInput
+            value={newMgrUser}
+            onChangeText={setNewMgrUser}
+            autoCapitalize="none"
+            placeholder="chu_shop"
+            placeholderTextColor={theme.textMuted}
+            style={[
+              styles.input,
+              { backgroundColor: theme.surfaceAlt, color: theme.text, borderColor: theme.border },
+            ]}
+          />
+        </View>
 
-        <Text style={[styles.fieldLabel, { color: theme.textMuted }]}>Họ tên Quản lý</Text>
-        <TextInput
-          value={newMgrName}
-          onChangeText={setNewMgrName}
-          placeholder="Nguyễn Văn A"
-          placeholderTextColor={theme.textMuted}
-          style={[
-            styles.input,
-            { backgroundColor: theme.surfaceAlt, color: theme.text, borderColor: theme.border },
-          ]}
-        />
+        <View style={styles.fieldGroup}>
+          <Text style={[styles.fieldLabel, { color: theme.textMuted }]}>Họ tên Chủ kho</Text>
+          <TextInput
+            value={newMgrName}
+            onChangeText={setNewMgrName}
+            placeholder="Nguyễn Văn A"
+            placeholderTextColor={theme.textMuted}
+            style={[
+              styles.input,
+              { backgroundColor: theme.surfaceAlt, color: theme.text, borderColor: theme.border },
+            ]}
+          />
+        </View>
 
-        <Text style={[styles.fieldLabel, { color: theme.textMuted }]}>Mật khẩu Quản lý *</Text>
-        <TextInput
-          value={newMgrSecret}
-          onChangeText={setNewMgrSecret}
-          secureTextEntry
-          placeholder="Tối thiểu 4 ký tự"
-          placeholderTextColor={theme.textMuted}
-          style={[
-            styles.input,
-            { backgroundColor: theme.surfaceAlt, color: theme.text, borderColor: theme.border },
-          ]}
-        />
+        <View style={styles.fieldGroup}>
+          <Text style={[styles.fieldLabel, { color: theme.textMuted }]}>Mật khẩu Chủ kho *</Text>
+          <TextInput
+            value={newMgrSecret}
+            onChangeText={setNewMgrSecret}
+            secureTextEntry
+            placeholder="Tối thiểu 4 ký tự"
+            placeholderTextColor={theme.textMuted}
+            style={[
+              styles.input,
+              { backgroundColor: theme.surfaceAlt, color: theme.text, borderColor: theme.border },
+            ]}
+          />
+        </View>
 
-        <Text style={[styles.fieldLabel, { color: theme.textMuted }]}>
-          Tài khoản Nhân viên kiểm kho (Tùy chọn)
-        </Text>
-        <TextInput
-          value={newStaffUser}
-          onChangeText={setNewStaffUser}
-          autoCapitalize="none"
-          placeholder="nhanvien_01"
-          placeholderTextColor={theme.textMuted}
-          style={[
-            styles.input,
-            { backgroundColor: theme.surfaceAlt, color: theme.text, borderColor: theme.border },
-          ]}
-        />
-        <TextInput
-          value={newStaffSecret}
-          onChangeText={setNewStaffSecret}
-          secureTextEntry
-          placeholder="Mật khẩu nhân viên"
-          placeholderTextColor={theme.textMuted}
-          style={[
-            styles.input,
-            { backgroundColor: theme.surfaceAlt, color: theme.text, borderColor: theme.border },
-          ]}
-        />
+        <View style={styles.fieldGroup}>
+          <Text style={[styles.fieldLabel, { color: theme.textMuted }]}>
+            Tài khoản Nhân viên (Tùy chọn)
+          </Text>
+          <TextInput
+            value={newStaffUser}
+            onChangeText={setNewStaffUser}
+            autoCapitalize="none"
+            placeholder="nhanvien_01"
+            placeholderTextColor={theme.textMuted}
+            style={[
+              styles.input,
+              { backgroundColor: theme.surfaceAlt, color: theme.text, borderColor: theme.border },
+            ]}
+          />
+          <TextInput
+            value={newStaffSecret}
+            onChangeText={setNewStaffSecret}
+            secureTextEntry
+            placeholder="Mật khẩu nhân viên"
+            placeholderTextColor={theme.textMuted}
+            style={[
+              styles.input,
+              { backgroundColor: theme.surfaceAlt, color: theme.text, borderColor: theme.border },
+            ]}
+          />
+        </View>
+
         {errorMsg ? <Text style={[styles.errText, { color: theme.danger }]}>{errorMsg}</Text> : null}
       </View>
     ),
@@ -402,20 +422,22 @@ export function LoginScreen() {
 
       <Modal visible={registerModal} animationType="slide" onRequestClose={() => setRegisterModal(false)}>
         <SafeAreaView style={[styles.container, { backgroundColor: theme.bg }]}>
-          <View style={[styles.modalHeader, { backgroundColor: theme.surface, borderBottomColor: theme.border }]}>
-            <Text style={[styles.modalTitle, { color: theme.text }]}>Khởi tạo Cửa hàng mới</Text>
-            <Pressable
-              onPress={() => setRegisterModal(false)}
-              accessibilityRole="button"
-              accessibilityLabel="Đóng đăng ký cửa hàng"
-              android_ripple={{ color: theme.ripple }}
-              style={({ pressed }) => [
-                styles.closeBtn,
-                { backgroundColor: theme.surfaceAlt, opacity: pressed ? 0.75 : 1 },
-              ]}
-            >
-              <Ionicons name="close" size={24} color={theme.text} />
-            </Pressable>
+          <View style={[styles.modalHeaderWrap, { backgroundColor: theme.surface, borderBottomColor: theme.border }]}>
+            <View style={styles.modalHeaderInner}>
+              <Text style={[styles.modalTitle, { color: theme.text }]}>Tạo cửa hàng mới</Text>
+              <Pressable
+                onPress={() => setRegisterModal(false)}
+                accessibilityRole="button"
+                accessibilityLabel="Đóng đăng ký cửa hàng"
+                android_ripple={{ color: theme.ripple }}
+                style={({ pressed }) => [
+                  styles.closeBtn,
+                  { backgroundColor: theme.surfaceAlt, opacity: pressed ? 0.75 : 1 },
+                ]}
+              >
+                <Ionicons name="close" size={22} color={theme.text} />
+              </Pressable>
+            </View>
           </View>
           <FlatList
             data={registerSections}
@@ -424,13 +446,15 @@ export function LoginScreen() {
             contentContainerStyle={styles.listContent}
             keyboardShouldPersistTaps="handled"
           />
-          <View style={[styles.modalFooter, { backgroundColor: theme.surface, borderTopColor: theme.border }]}>
-            <ActionButton
-              label="Hoàn tất & Tạo kho ngay"
-              icon="rocket-outline"
-              onPress={() => void handleRegister()}
-              loading={isLoading}
-            />
+          <View style={[styles.modalFooterWrap, { backgroundColor: theme.surface, borderTopColor: theme.border }]}>
+            <View style={styles.modalFooterInner}>
+              <ActionButton
+                label="Hoàn tất & Tạo kho"
+                icon="checkmark-circle-outline"
+                onPress={() => void handleRegister()}
+                loading={isLoading}
+              />
+            </View>
           </View>
         </SafeAreaView>
       </Modal>
@@ -444,13 +468,13 @@ const styles = StyleSheet.create({
   listContent: {
     padding: SPACING.lg,
     gap: SPACING.md,
+    maxWidth: 460,
+    width: '100%',
+    alignSelf: 'center',
   },
   heroWrap: {
     gap: SPACING.xs,
     paddingVertical: SPACING.sm,
-  },
-  badgeRow: {
-    flexDirection: 'row',
   },
   brandTitle: {
     fontSize: 28,
@@ -458,8 +482,6 @@ const styles = StyleSheet.create({
   },
   brandSub: {
     fontSize: 14,
-    lineHeight: 20,
-    maxWidth: 460,
   },
   card: {
     borderRadius: RADIUS.lg,
@@ -468,16 +490,22 @@ const styles = StyleSheet.create({
     gap: SPACING.md,
   },
   sectionTitle: {
-    fontSize: 16,
+    fontSize: 17,
+    fontWeight: '700',
+  },
+  subHeading: {
+    fontSize: 14,
     fontWeight: '600',
   },
-  helperText: {
-    fontSize: 13,
-    lineHeight: 19,
+  fieldGroup: {
+    gap: SPACING.xs,
   },
   fieldLabel: {
     fontSize: 13,
     fontWeight: '500',
+  },
+  helperText: {
+    fontSize: 13,
   },
   input: {
     minHeight: TOUCH_MIN,
@@ -489,6 +517,10 @@ const styles = StyleSheet.create({
   errText: {
     fontSize: 13,
     fontWeight: '500',
+  },
+  demoRow: {
+    flexDirection: 'row',
+    gap: SPACING.sm,
   },
   serverHeader: {
     minHeight: TOUCH_MIN,
@@ -504,22 +536,27 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   serverTitle: {
-    fontSize: 14,
+    fontSize: 13,
     fontWeight: '500',
     flex: 1,
   },
   serverBody: {
     gap: SPACING.sm,
   },
-  modalHeader: {
+  modalHeaderWrap: {
+    borderBottomWidth: 1,
+  },
+  modalHeaderInner: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
     paddingHorizontal: SPACING.lg,
     paddingVertical: SPACING.md,
-    borderBottomWidth: 1,
+    maxWidth: 460,
+    width: '100%',
+    alignSelf: 'center',
   },
-  modalTitle: { fontSize: 18, fontWeight: '600' },
+  modalTitle: { fontSize: 18, fontWeight: '700' },
   closeBtn: {
     minWidth: TOUCH_MIN,
     minHeight: TOUCH_MIN,
@@ -527,8 +564,13 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     alignItems: 'center',
   },
-  modalFooter: {
-    padding: SPACING.lg,
+  modalFooterWrap: {
     borderTopWidth: 1,
+  },
+  modalFooterInner: {
+    padding: SPACING.lg,
+    maxWidth: 460,
+    width: '100%',
+    alignSelf: 'center',
   },
 });

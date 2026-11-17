@@ -18,7 +18,7 @@ import { useTheme } from '../theme/useTheme';
 import { DuplicateWarningItem, Product, TrackingType } from '../types/wms';
 import { triggerSuccessHaptic } from '../utils/formatters';
 import { BarcodeScannerModal } from './BarcodeScannerModal';
-import { ActionButton, ChipOption, ChipRow, StatusPill } from './CommonUI';
+import { ActionButton, ChipOption, ChipRow } from './CommonUI';
 
 const UNIT_OPTIONS: ChipOption[] = [
   { key: 'Thùng', label: 'Thùng' },
@@ -189,18 +189,13 @@ export function QuickAddProductModal({
       if (item === 'core') {
         return (
           <View style={[styles.card, { backgroundColor: theme.surface, borderColor: theme.border }]}>
-            <View style={styles.rowBetween}>
-              <Text style={[styles.cardTitle, { color: theme.text }]}>
-                3 thông tin bắt buộc (Lite Quick-Add)
-              </Text>
-              <StatusPill text="5 giây" tone="primary" />
-            </View>
+            <Text style={[styles.cardTitle, { color: theme.text }]}>Thông tin cơ bản</Text>
 
-            <Text style={[styles.fieldLabel, { color: theme.textMuted }]}>Tên mặt hàng / vật tư *</Text>
+            <Text style={[styles.fieldLabel, { color: theme.textMuted }]}>Tên mặt hàng *</Text>
             <TextInput
               value={name}
               onChangeText={setName}
-              placeholder="Ví dụ: Túi nilon 2 quai, Nến sinh nhật..."
+              placeholder="Ví dụ: Mắm tép chưng thịt, Túi nilon..."
               placeholderTextColor={theme.textMuted}
               style={[
                 styles.input,
@@ -208,7 +203,7 @@ export function QuickAddProductModal({
               ]}
             />
 
-            <Text style={[styles.fieldLabel, { color: theme.textMuted }]}>Số lượng tồn hiện tại *</Text>
+            <Text style={[styles.fieldLabel, { color: theme.textMuted }]}>Tồn kho ban đầu *</Text>
             <TextInput
               value={currentStock}
               onChangeText={setCurrentStock}
@@ -221,7 +216,7 @@ export function QuickAddProductModal({
               ]}
             />
 
-            <Text style={[styles.fieldLabel, { color: theme.textMuted }]}>Đơn vị tính gốc *</Text>
+            <Text style={[styles.fieldLabel, { color: theme.textMuted }]}>Đơn vị tính *</Text>
             <ChipRow options={UNIT_OPTIONS} selectedKey={unit} onSelect={setUnit} />
           </View>
         );
@@ -231,7 +226,7 @@ export function QuickAddProductModal({
         return (
           <View style={[styles.card, { backgroundColor: theme.surface, borderColor: theme.warning }]}>
             <Text style={[styles.warnHeader, { color: theme.warning }]}>
-              Cảnh báo có mặt hàng gần giống (tránh tạo trùng làm nhiễu AI):
+              Mặt hàng tương tự đã có trong kho:
             </Text>
             <FlatList data={duplicates} renderItem={renderDup} keyExtractor={dupKey} />
           </View>
@@ -491,7 +486,7 @@ export function QuickAddProductModal({
         <View style={[styles.footer, { backgroundColor: theme.surface, borderTopColor: theme.border }]}>
           {errorMsg ? <Text style={[styles.errText, { color: theme.danger }]}>{errorMsg}</Text> : null}
           <ActionButton
-            label="Lưu vào Kho (Tự sinh SKU & QR)"
+            label="Lưu mặt hàng mới"
             icon="checkmark-circle-outline"
             onPress={() => void handleSave()}
             loading={saving}
@@ -534,6 +529,9 @@ const styles = StyleSheet.create({
   listContent: {
     padding: SPACING.lg,
     gap: SPACING.md,
+    maxWidth: 640,
+    width: '100%',
+    alignSelf: 'center',
   },
   card: {
     borderRadius: RADIUS.lg,

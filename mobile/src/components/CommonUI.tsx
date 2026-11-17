@@ -224,6 +224,56 @@ export function ChipRow({
   );
 }
 
+export function SegmentedToggle({
+  options,
+  selectedKey,
+  onSelect,
+}: {
+  options: ChipOption[];
+  selectedKey: string;
+  onSelect: (key: string) => void;
+}) {
+  const theme = useTheme();
+  return (
+    <View style={[styles.segTrack, { backgroundColor: theme.surfaceAlt, borderColor: theme.border }]}>
+      {options.map((opt) => {
+        const active = opt.key === selectedKey;
+        return (
+          <Pressable
+            key={opt.key}
+            onPress={() => {
+              if (!active) {
+                void triggerLightHaptic();
+                onSelect(opt.key);
+              }
+            }}
+            accessibilityRole="button"
+            accessibilityLabel={opt.label}
+            android_ripple={{ color: theme.ripple }}
+            style={({ pressed }) => [
+              styles.segItem,
+              {
+                backgroundColor: active ? theme.primary : 'transparent',
+                opacity: pressed ? 0.85 : 1,
+              },
+            ]}
+          >
+            <Text
+              style={[
+                styles.segText,
+                { color: active ? theme.primaryTextOn : theme.textMuted },
+              ]}
+              numberOfLines={1}
+            >
+              {opt.label}
+            </Text>
+          </Pressable>
+        );
+      })}
+    </View>
+  );
+}
+
 interface ErrorBoundaryState {
   hasError: boolean;
   message: string;
@@ -269,7 +319,7 @@ const styles = StyleSheet.create({
     minHeight: TOUCH_MIN,
     borderRadius: RADIUS.md,
     paddingHorizontal: SPACING.lg,
-    paddingVertical: SPACING.md,
+    paddingVertical: 10,
     justifyContent: 'center',
     alignItems: 'center',
   },
@@ -280,7 +330,7 @@ const styles = StyleSheet.create({
     gap: SPACING.sm,
   },
   buttonText: {
-    fontSize: 15,
+    fontSize: 14,
     fontWeight: '600',
   },
   pill: {
@@ -317,7 +367,27 @@ const styles = StyleSheet.create({
   },
   chipText: {
     fontSize: 13,
-    fontWeight: '500',
+    fontWeight: '600',
+  },
+  segTrack: {
+    flexDirection: 'row',
+    borderRadius: RADIUS.md,
+    borderWidth: 1,
+    padding: 3,
+    gap: 4,
+  },
+  segItem: {
+    flex: 1,
+    minHeight: TOUCH_MIN,
+    borderRadius: RADIUS.sm,
+    paddingHorizontal: SPACING.sm,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  segText: {
+    fontSize: 13,
+    fontWeight: '600',
+    textAlign: 'center',
   },
   errorContainer: {
     flex: 1,

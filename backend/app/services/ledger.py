@@ -383,29 +383,26 @@ def get_ledger_audit_summary(
             if prev_dt is None or mv.occurred_at > prev_dt:
                 entry["last_modified_at"] = mv.occurred_at
 
-        if mv.id in reversed_ids or mv.movement_type == "REVERSAL":
+        if mv.id in reversed_ids or mv.movement_type == "REVERSAL" or entry is None:
             continue
 
         if mv.movement_type == "IN_PURCHASE":
             qty = abs(float(mv.quantity_delta))
             owner_imported_total += qty
             owner_imported_events += 1
-            if entry is not None:
-                entry["owner_imported_qty"] += qty
-                entry["owner_imported_count"] += 1
+            entry["owner_imported_qty"] += qty
+            entry["owner_imported_count"] += 1
         elif mv.movement_type in ("OUT_CONSUMPTION", "OUT_DAMAGE_EXPIRED"):
             qty = abs(float(mv.quantity_delta))
             if actor_role == "STAFF":
                 staff_consumed_total += qty
                 staff_consumed_events += 1
-                if entry is not None:
-                    entry["staff_consumed_qty"] += qty
-                    entry["staff_consumed_count"] += 1
+                entry["staff_consumed_qty"] += qty
+                entry["staff_consumed_count"] += 1
             else:
                 manager_consumed_total += qty
                 manager_consumed_events += 1
-                if entry is not None:
-                    entry["manager_consumed_qty"] += qty
+                entry["manager_consumed_qty"] += qty
 
     product_items: list[ProductAuditSummaryOut] = []
     for prod in active_products:

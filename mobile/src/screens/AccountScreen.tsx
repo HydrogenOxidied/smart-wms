@@ -1,7 +1,11 @@
 import React, { useCallback, useState } from 'react';
 import { FlatList, StyleSheet, Text, View } from 'react-native';
-import { ActionButton, ChipOption, ChipRow, StatusPill } from '../components/CommonUI';
-import { getActiveBaseUrl } from '../services/apiClient';
+import {
+  ActionButton,
+  ChipOption,
+  SegmentedToggle,
+  StatusPill,
+} from '../components/CommonUI';
 import { useAuthStore } from '../store/authStore';
 import { useOfflineQueueStore } from '../store/offlineQueueStore';
 import { ThemePreference, useUiStore } from '../store/uiStore';
@@ -10,9 +14,9 @@ import { useTheme } from '../theme/useTheme';
 import { triggerSuccessHaptic } from '../utils/formatters';
 
 const THEME_OPTIONS: ChipOption[] = [
-  { key: 'system', label: 'Theo hệ thống' },
-  { key: 'light', label: 'Giao diện Sáng' },
-  { key: 'dark', label: 'Tối (Tiết kiệm OLED)' },
+  { key: 'system', label: 'Tự động' },
+  { key: 'light', label: 'Sáng' },
+  { key: 'dark', label: 'Tối' },
 ];
 
 export function AccountScreen() {
@@ -27,11 +31,7 @@ export function AccountScreen() {
     if (count > 0) {
       await triggerSuccessHaptic();
     }
-    setSyncNotice(
-      count > 0
-        ? `Đã đồng bộ ${count} giao dịch Offline.`
-        : 'Không có giao dịch chờ hoặc chưa có mạng.',
-    );
+    setSyncNotice(count > 0 ? `Đã đồng bộ ${count} giao dịch.` : 'Chưa có dữ liệu chờ hoặc mất mạng.');
   }, [flushQueue]);
 
   const blocks = ['profile', 'sync', 'theme'];
@@ -44,21 +44,15 @@ export function AccountScreen() {
             <View style={styles.rowBetween}>
               <Text style={[styles.title, { color: theme.text }]}>{user?.full_name}</Text>
               <StatusPill
-                text={user?.role === 'MANAGER' ? 'Quản lý' : 'Nhân viên kho'}
+                text={user?.role === 'MANAGER' ? 'Chủ kho' : 'Nhân viên'}
                 tone={user?.role === 'MANAGER' ? 'primary' : 'secondary'}
               />
             </View>
             <Text style={[styles.subText, { color: theme.textMuted }]}>
-              Cửa hàng: {store?.name} ({store?.code})
-            </Text>
-            <Text style={[styles.subText, { color: theme.textMuted }]}>
-              Chế độ giao diện: {store?.lite_mode ? 'Lite Mode (Tiệm nhỏ)' : 'Warehouse Pro Mode'}
-            </Text>
-            <Text style={[styles.subText, { color: theme.textMuted }]}>
-              Máy chủ: {getActiveBaseUrl()}
+              @{user?.username} · {store?.name}
             </Text>
             <ActionButton
-              label="Đăng xuất / Đổi tài khoản"
+              label="Đăng xuất"
               icon="log-out-outline"
               variant="danger"
               onPress={() => void logout()}
@@ -71,36 +65,34 @@ export function AccountScreen() {
         return (
           <View style={[styles.card, { backgroundColor: theme.surface, borderColor: theme.border }]}>
             <View style={styles.rowBetween}>
-              <Text style={[styles.title, { color: theme.text }]}>Hàng đợi Offline</Text>
+              <Text style={[styles.title, { color: theme.text }]}>Đồng bộ Offline</Text>
               <StatusPill
                 text={pending.length > 0 ? `${pending.length} chờ gửi` : 'Đã đồng bộ'}
                 tone={pending.length > 0 ? 'warning' : 'primary'}
               />
             </View>
-            <Text style={[styles.subText, { color: theme.textMuted }]}>
-              Mọi thao tác quét xuất/nhập khi mất sóng trong kho sẽ được lưu an toàn và đồng bộ FIFO khi có kết nối.
-            </Text>
             {syncNotice || lastSyncMessage ? (
               <Text style={[styles.subText, { color: theme.secondary }]}>
                 {syncNotice || lastSyncMessage}
               </Text>
             ) : null}
-            <ActionButton
-              label={`Đồng bộ ngay (${pending.length})`}
-              icon="cloud-upload-outline"
-              variant="secondary"
-              disabled={pending.length === 0}
-              loading={isSyncing}
-              onPress={() => void handleSync()}
-            />
+            {pending.length > 0 ? (
+              <ActionButton
+                label={`Đồng bộ ngay (${pending.length})`}
+                icon="cloud-upload-outline"
+                variant="secondary"
+                loading={isSyncing}
+                onPress={() => void handleSync()}
+              />
+            ) : null}
           </View>
         );
       }
 
       return (
         <View style={[styles.card, { backgroundColor: theme.surface, borderColor: theme.border }]}>
-          <Text style={[styles.title, { color: theme.text }]}>Giao diện Sáng / Tối</Text>
-          <ChipRow
+          <Text style={[styles.title, { color: theme.text }]}>Giao diện</Text>
+          <SegmentedToggle
             options={THEME_OPTIONS}
             selectedKey={themePref}
             onSelect={(k) => setThemePref(k as ThemePreference)}
@@ -157,6 +149,5 @@ const styles = StyleSheet.create({
   },
   subText: {
     fontSize: 13,
-    lineHeight: 19,
   },
 });

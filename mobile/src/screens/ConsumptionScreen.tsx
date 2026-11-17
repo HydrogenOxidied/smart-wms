@@ -11,7 +11,13 @@ import {
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { Ionicons } from '@expo/vector-icons';
 import { BarcodeScannerModal } from '../components/BarcodeScannerModal';
-import { ActionButton, ChipOption, ChipRow, StatusPill } from '../components/CommonUI';
+import {
+  ActionButton,
+  ChipOption,
+  ChipRow,
+  SegmentedToggle,
+  StatusPill,
+} from '../components/CommonUI';
 import { ApiHttpError, api, isOfflineNetworkError } from '../services/apiClient';
 import { useAuthStore } from '../store/authStore';
 import { useOfflineQueueStore } from '../store/offlineQueueStore';
@@ -30,20 +36,22 @@ import {
 type ActionMode = 'out_single' | 'stockin' | 'out_batch';
 
 const MANAGER_MODE_TABS: ChipOption[] = [
-  { key: 'out_single', label: 'Xuất tiêu hao (-)' },
-  { key: 'stockin', label: 'Nhập thêm hàng (+)' },
-  { key: 'out_batch', label: 'Chốt nhanh cuối ca' },
+  { key: 'out_single', label: 'Xuất kho (-)' },
+  { key: 'stockin', label: 'Nhập kho (+)' },
+  { key: 'out_batch', label: 'Chốt cuối ca' },
 ];
 
 const STAFF_MODE_TABS: ChipOption[] = [
-  { key: 'out_single', label: 'Xuất tiêu hao (-)' },
-  { key: 'out_batch', label: 'Chốt nhanh cuối ca' },
+  { key: 'out_single', label: 'Xuất kho (-)' },
+  { key: 'out_batch', label: 'Chốt cuối ca' },
 ];
 
 const OUT_REASON_OPTIONS: ChipOption[] = [
-  { key: 'OUT_CONSUMPTION', label: 'Tiêu hao / Bán ra (AI học)' },
-  { key: 'OUT_DAMAGE_EXPIRED', label: 'Hàng hỏng / Hủy (Loại khỏi AI)' },
+  { key: 'OUT_CONSUMPTION', label: 'Tiêu hao / Bán' },
+  { key: 'OUT_DAMAGE_EXPIRED', label: 'Hàng hỏng / Hủy' },
 ];
+
+const SINGLE_FORM_SECTIONS = ['picker', 'controls'];
 
 const ShiftItemRow = React.memo(
   ({
@@ -60,15 +68,12 @@ const ShiftItemRow = React.memo(
     return (
       <View style={[styles.shiftCard, { backgroundColor: theme.surface, borderColor: theme.border }]}>
         <View style={styles.flexOne}>
-          <View style={styles.rowGap}>
-            {product.is_pinned ? <StatusPill text="Hay dùng" tone="primary" /> : null}
-            <Text style={[styles.itemName, { color: theme.text }]} numberOfLines={1}>
-              {product.name}
-            </Text>
-          </View>
+          <Text style={[styles.itemName, { color: theme.text }]} numberOfLines={1}>
+            {product.name}
+          </Text>
           <Text style={[styles.subText, { color: qty > 0 ? theme.danger : theme.textMuted }]}>
-            Hiện có: {formatNumber(product.current_stock)} {product.unit}
-            {qty > 0 ? ` → Trừ ${qty} → Còn: ${formatNumber(afterQty)} ${product.unit}` : ''}
+            Tồn: {formatNumber(product.current_stock)} {product.unit}
+            {qty > 0 ? ` → Còn: ${formatNumber(afterQty)} ${product.unit}` : ''}
           </Text>
         </View>
 
@@ -79,7 +84,7 @@ const ShiftItemRow = React.memo(
               onChangeQty(product.id, Math.max(0, qty - 1));
             }}
             accessibilityRole="button"
-            accessibilityLabel={`Giảm số lượng chốt ca cho ${product.name}`}
+            accessibilityLabel={`Giảm số lượng ${product.name}`}
             android_ripple={{ color: theme.ripple }}
             style={({ pressed }) => [
               styles.stepBtn,
@@ -97,7 +102,7 @@ const ShiftItemRow = React.memo(
               onChangeQty(product.id, qty + 1);
             }}
             accessibilityRole="button"
-            accessibilityLabel={`Tăng số lượng chốt ca cho ${product.name}`}
+            accessibilityLabel={`Tăng số lượng ${product.name}`}
             android_ripple={{ color: theme.ripple }}
             style={({ pressed }) => [
               styles.stepBtn,
@@ -119,6 +124,7 @@ export function ConsumptionScreen() {
   const store = useAuthStore((s) => s.store);
   const isManager = user?.role === 'MANAGER';
   const setActiveTab = useUiStore((s) => s.setActiveTab);
+  const focusedMovementProductId = useUiStore((s) => s.focusedMovementProductId);
   const { pending, enqueueMovement, flushQueue } = useOfflineQueueStore();
 
   const [mode, setMode] = useState<ActionMode>('out_single');
@@ -144,6 +150,18 @@ export function ConsumptionScreen() {
       setMode('out_single');
     }
   }, [isManager, mode]);
+
+  useEffect(() => {
+    if (focusedMovementProductId) {
+      setSelectedProductId(focusedMovementProductId);
+      setProductSearch('');
+      setUnitMode('BASE');
+      if (mode === 'out_batch') {
+        setMode('out_single');
+      }
+      useUiStore.setState({ focusedMovementProductId: null });
+    }
+  }, [focusedMovementProductId, mode]);
 
   const productsQuery = useQuery({
     queryKey: ['products'],
@@ -176,7 +194,7 @@ export function ConsumptionScreen() {
     () =>
       filteredProducts.map((p) => ({
         key: String(p.id),
-        label: `${p.name} (${formatNumber(p.current_stock)} ${p.unit})`,
+        label: `${p.name} · ${formatNumber(p.current_stock)} ${p.unit}`,
       })),
     [filteredProducts],
   );
@@ -202,7 +220,7 @@ export function ConsumptionScreen() {
   const unitModeOptions = useMemo<ChipOption[]>(() => {
     if (!activeProduct) return [{ key: 'BASE', label: 'Đơn vị lẻ' }];
     return [
-      { key: 'BASE', label: `Đơn vị lẻ (${activeProduct.unit})` },
+      { key: 'BASE', label: `Lẻ (${activeProduct.unit})` },
       {
         key: 'PACK',
         label: `Nguyên ${activeProduct.pack_unit || 'Thùng'} (×${activeProduct.pack_conversion_rate})`,
@@ -295,7 +313,7 @@ export function ConsumptionScreen() {
             ? `+${formatNumber(created.quantity_delta)}`
             : formatNumber(created.quantity_delta);
         setStatusMsg(
-          `Đã ghi sổ (${user?.full_name || 'Hệ thống'}): "${product.name}" từ ${formatNumber(beforeVal)} → (${deltaStr} ${product.unit}) → Còn ${formatNumber(created.balance_after)} ${product.unit}.`,
+          `Đã lưu: "${product.name}" (${formatNumber(beforeVal)} ${deltaStr} → ${formatNumber(created.balance_after)} ${product.unit}).`,
         );
         setShowAuditLink(true);
         refreshAll();
@@ -307,9 +325,7 @@ export function ConsumptionScreen() {
         }
         if (isOfflineNetworkError(err)) {
           await enqueueMovement(product.name, product.unit, payload);
-          setStatusMsg(
-            `Mất kết nối: Đã lưu giao dịch "${product.name}" vào hàng đợi Offline để đồng bộ sau.`,
-          );
+          setStatusMsg(`Offline: Đã xếp hàng đợi giao dịch "${product.name}".`);
           return;
         }
         setStatusMsg(err instanceof Error ? err.message : 'Lỗi ghi nhận giao dịch.');
@@ -317,7 +333,7 @@ export function ConsumptionScreen() {
         setSubmitting(false);
       }
     },
-    [enqueueMovement, refreshAll, user?.full_name],
+    [enqueueMovement, refreshAll],
   );
 
   const handleSingleSubmit = useCallback(() => {
@@ -352,12 +368,12 @@ export function ConsumptionScreen() {
         (p) => p.barcode === code || p.sku.toUpperCase() === code.toUpperCase(),
       );
       if (!found) {
-        setStatusMsg(`Không tìm thấy sản phẩm khớp mã "${code}".`);
+        setStatusMsg(`Không tìm thấy sản phẩm mã "${code}".`);
         return;
       }
       setProductSearch('');
       setSelectedProductId(found.id);
-      setStatusMsg(`Đã chọn "${found.name}" qua mã vạch ${code}.`);
+      setStatusMsg(`Đã chọn "${found.name}".`);
     },
     [products],
   );
@@ -381,7 +397,7 @@ export function ConsumptionScreen() {
   const handleSubmitShiftBatch = useCallback(async () => {
     const entries = Object.entries(shiftQuantities).filter(([, qty]) => qty > 0);
     if (entries.length === 0) {
-      setStatusMsg('Hãy tăng số lượng ít nhất 1 mặt hàng đã tiêu trong ca.');
+      setStatusMsg('Chọn ít nhất 1 mặt hàng cần xuất cuối ca.');
       return;
     }
 
@@ -402,9 +418,7 @@ export function ConsumptionScreen() {
       const res = await api.createBatchMovements(batchItems);
       await triggerSuccessHaptic();
       setShiftQuantities({});
-      setStatusMsg(
-        `Đã chốt ca thành công ${res.processed_count} mặt hàng vào sổ cái kiểm kê (${user?.full_name}).`,
-      );
+      setStatusMsg(`Đã chốt ca ${res.processed_count} mặt hàng vào sổ cái.`);
       setShowAuditLink(true);
       refreshAll();
     } catch (err) {
@@ -414,43 +428,67 @@ export function ConsumptionScreen() {
           await enqueueMovement(prod?.name || `SP #${item.product_id}`, prod?.unit || 'ĐV', item);
         }
         setShiftQuantities({});
-        setStatusMsg(`Đang Offline: Đã đưa ${batchItems.length} dòng chốt ca vào hàng đợi đồng bộ.`);
+        setStatusMsg(`Offline: Đã xếp ${batchItems.length} dòng chốt ca vào hàng đợi.`);
       } else {
         setStatusMsg(err instanceof Error ? err.message : 'Lỗi chốt ca.');
       }
     } finally {
       setSubmitting(false);
     }
-  }, [shiftQuantities, products, enqueueMovement, refreshAll, user?.full_name]);
-
-  const singleFormSections = ['picker', 'slider', 'preview'];
+  }, [shiftQuantities, products, enqueueMovement, refreshAll]);
 
   const renderSingleForm = useCallback(
     ({ item }: { item: string }) => {
+      if (products.length === 0) {
+        if (item !== 'picker') return null;
+        return (
+          <View style={[styles.card, { backgroundColor: theme.surface, borderColor: theme.border }]}>
+            <Text style={[styles.sectionTitle, { color: theme.text }]}>Kho chưa có mặt hàng</Text>
+            <Text style={[styles.subText, { color: theme.textMuted }]}>
+              Hãy thêm mặt hàng đầu tiên trong Kho hàng trước khi thực hiện Xuất / Nhập.
+            </Text>
+            <ActionButton
+              label="Mở Kho hàng để thêm sản phẩm →"
+              icon="cube-outline"
+              onPress={() => setActiveTab('inventory')}
+            />
+          </View>
+        );
+      }
+
       if (item === 'picker') {
         return (
           <View style={[styles.card, { backgroundColor: theme.surface, borderColor: theme.border }]}>
-            <View style={styles.rowBetween}>
-              <Text style={[styles.sectionTitle, { color: theme.text }]}>
-                1. Chọn mặt hàng cần {isStockIn ? 'Nhập thêm' : 'Xuất kho'}
-              </Text>
-              <ActionButton
-                label="Quét mã"
-                icon="barcode-outline"
-                variant="secondary"
+            <Text style={[styles.sectionTitle, { color: theme.text }]}>Mặt hàng</Text>
+            <View style={styles.searchRow}>
+              <View
+                style={[
+                  styles.searchBox,
+                  { backgroundColor: theme.surfaceAlt, borderColor: theme.border },
+                ]}
+              >
+                <Ionicons name="search-outline" size={18} color={theme.textMuted} />
+                <TextInput
+                  value={productSearch}
+                  onChangeText={setProductSearch}
+                  placeholder="Tìm tên hoặc mã SKU..."
+                  placeholderTextColor={theme.textMuted}
+                  style={[styles.searchInput, { color: theme.text }]}
+                />
+              </View>
+              <Pressable
                 onPress={() => setScannerOpen(true)}
-              />
+                accessibilityRole="button"
+                accessibilityLabel="Quét mã vạch chọn sản phẩm"
+                android_ripple={{ color: theme.ripple }}
+                style={({ pressed }) => [
+                  styles.scanBtn,
+                  { backgroundColor: theme.secondary, opacity: pressed ? 0.85 : 1 },
+                ]}
+              >
+                <Ionicons name="barcode-outline" size={22} color="#FFFFFF" />
+              </Pressable>
             </View>
-            <TextInput
-              value={productSearch}
-              onChangeText={setProductSearch}
-              placeholder="Tìm nhanh theo tên hoặc SKU..."
-              placeholderTextColor={theme.textMuted}
-              style={[
-                styles.input,
-                { backgroundColor: theme.surfaceAlt, color: theme.text, borderColor: theme.border },
-              ]}
-            />
             {productChipOptions.length > 0 ? (
               <ChipRow
                 options={productChipOptions}
@@ -462,174 +500,21 @@ export function ConsumptionScreen() {
               />
             ) : (
               <Text style={[styles.subText, { color: theme.textMuted }]}>
-                Không có mặt hàng khớp từ khóa "{productSearch}".
+                Không khớp mặt hàng nào.
               </Text>
             )}
-          </View>
-        );
-      }
-
-      if (item === 'slider') {
-        const fillColor = isStockIn
-          ? theme.primary
-          : reason === 'OUT_DAMAGE_EXPIRED'
-            ? theme.danger
-            : theme.secondary;
-
-        return (
-          <View style={[styles.card, { backgroundColor: theme.surface, borderColor: theme.border }]}>
-            <View style={styles.rowBetween}>
-              <Text style={[styles.sectionTitle, { color: theme.text }]}>
-                2. {isStockIn ? 'Kéo thanh hoặc điền số lượng Nhập' : 'Kéo thanh hoặc điền số lượng Xuất'}
-              </Text>
-              <StatusPill
-                text={`${isStockIn ? '+' : '-'}${formatNumber(numericQty)} ${activeUnitLabel}`}
-                tone={isStockIn ? 'primary' : reason === 'OUT_DAMAGE_EXPIRED' ? 'danger' : 'warning'}
-              />
-            </View>
-
-            {!isStockIn ? (
-              <View style={styles.gapXs}>
-                <Text style={[styles.subText, { color: theme.textMuted }]}>Lý do xuất kho:</Text>
-                <ChipRow
-                  options={OUT_REASON_OPTIONS}
-                  selectedKey={reason}
-                  onSelect={(k) => setReason(k as 'OUT_CONSUMPTION' | 'OUT_DAMAGE_EXPIRED')}
-                />
-              </View>
-            ) : null}
-
-            {supportsPackMode && activeProduct ? (
-              <View style={styles.gapXs}>
-                <Text style={[styles.subText, { color: theme.textMuted }]}>Đơn vị thao tác:</Text>
-                <ChipRow
-                  options={unitModeOptions}
-                  selectedKey={effectiveUnitMode}
-                  onSelect={(k) => setUnitMode(k as UnitMode)}
-                />
-              </View>
-            ) : null}
-
-            <View
-              {...panResponder.panHandlers}
-              onLayout={(e) => {
-                trackWidthRef.current = Math.max(1, e.nativeEvent.layout.width);
-              }}
-              accessibilityLabel="Thanh trượt chọn số lượng xuất nhập"
-              style={styles.sliderTouchArea}
-            >
-              <View
-                pointerEvents="none"
-                style={[styles.sliderTrack, { backgroundColor: theme.surfaceAlt, borderColor: theme.border }]}
-              >
-                {sliderRatio > 0 ? (
-                  <View style={[styles.sliderFill, { flex: sliderRatio, backgroundColor: fillColor }]} />
-                ) : null}
-                {1 - sliderRatio > 0 ? (
-                  <View style={[styles.sliderRemain, { flex: 1 - sliderRatio }]} />
-                ) : null}
-              </View>
-            </View>
-
-            <View style={styles.rowBetween}>
-              <Text style={[styles.scaleLabel, { color: theme.textMuted }]}>0</Text>
-              <Text style={[styles.scaleLabel, { color: theme.textMuted }]}>
-                {Math.round(effectiveSliderMax / 2)}
-              </Text>
-              <Text style={[styles.scaleLabel, { color: theme.textMuted }]}>
-                {effectiveSliderMax} {activeUnitLabel}
-              </Text>
-            </View>
-
-            <View style={styles.numberFieldRow}>
-              <Pressable
-                onPress={() => adjustQty(-1)}
-                accessibilityRole="button"
-                accessibilityLabel="Giảm 1 đơn vị"
-                android_ripple={{ color: theme.ripple }}
-                style={({ pressed }) => [
-                  styles.stepperBtn,
-                  {
-                    backgroundColor: theme.surfaceAlt,
-                    borderColor: theme.border,
-                    opacity: pressed ? 0.75 : 1,
-                  },
-                ]}
-              >
-                <Ionicons name="remove" size={22} color={theme.text} />
-              </Pressable>
-
-              <TextInput
-                value={qtyText}
-                onChangeText={setQtyText}
-                keyboardType="numeric"
-                selectTextOnFocus
-                accessibilityLabel="Ô điền số lượng xuất nhập"
-                placeholder="0"
-                placeholderTextColor={theme.textMuted}
-                style={[
-                  styles.numberInput,
-                  {
-                    backgroundColor: theme.surfaceAlt,
-                    color: theme.text,
-                    borderColor: fillColor,
-                  },
-                ]}
-              />
-
-              <Pressable
-                onPress={() => adjustQty(1)}
-                accessibilityRole="button"
-                accessibilityLabel="Tăng 1 đơn vị"
-                android_ripple={{ color: theme.ripple }}
-                style={({ pressed }) => [
-                  styles.stepperBtn,
-                  {
-                    backgroundColor: isStockIn ? theme.primarySoft : theme.secondarySoft,
-                    borderColor: fillColor,
-                    opacity: pressed ? 0.75 : 1,
-                  },
-                ]}
-              >
-                <Ionicons name="add" size={22} color={fillColor} />
-              </Pressable>
-            </View>
-
-            {isStockIn ? (
-              <View style={styles.presetRow}>
-                <ActionButton label="+5" variant="outline" style={styles.flexOne} onPress={() => adjustQty(5)} />
-                <ActionButton label="+10" variant="outline" style={styles.flexOne} onPress={() => adjustQty(10)} />
-                <ActionButton label="+20" variant="outline" style={styles.flexOne} onPress={() => adjustQty(20)} />
-                <ActionButton label="+50" variant="outline" style={styles.flexOne} onPress={() => adjustQty(50)} />
-              </View>
-            ) : (
-              <View style={styles.presetRow}>
-                <ActionButton label="1" variant="outline" style={styles.flexOne} onPress={() => setQtyText('1')} />
-                <ActionButton label="2" variant="outline" style={styles.flexOne} onPress={() => setQtyText('2')} />
-                <ActionButton label="5" variant="outline" style={styles.flexOne} onPress={() => setQtyText('5')} />
-                <ActionButton label="10" variant="outline" style={styles.flexOne} onPress={() => setQtyText('10')} />
-              </View>
-            )}
-
-            <TextInput
-              value={note}
-              onChangeText={setNote}
-              placeholder={
-                isStockIn
-                  ? 'Ghi chú nhập lô (VD: Nhập sỉ đầu tuần, NCC giao...)'
-                  : 'Ghi chú xuất kho (VD: Ca sáng bán lẻ, đơn khách sỉ...)'
-              }
-              placeholderTextColor={theme.textMuted}
-              style={[
-                styles.input,
-                { backgroundColor: theme.surfaceAlt, color: theme.text, borderColor: theme.border },
-              ]}
-            />
           </View>
         );
       }
 
       if (!activeProduct) return null;
+
+      const fillColor = isStockIn
+        ? theme.primary
+        : reason === 'OUT_DAMAGE_EXPIRED'
+          ? theme.danger
+          : theme.secondary;
+
       const beforeStock = activeProduct.current_stock;
       const signedDelta = isStockIn ? baseDeltaQty : -baseDeltaQty;
       const projectedStock = Number((beforeStock + signedDelta).toFixed(3));
@@ -637,9 +522,141 @@ export function ConsumptionScreen() {
 
       return (
         <View style={[styles.card, { backgroundColor: theme.surface, borderColor: theme.border }]}>
-          <Text style={[styles.sectionTitle, { color: theme.text }]}>
-            3. Kiểm tra minh bạch trước khi lưu sổ
-          </Text>
+          <View style={styles.rowBetween}>
+            <Text style={[styles.sectionTitle, { color: theme.text }]}>Số lượng ({activeUnitLabel})</Text>
+            <StatusPill
+              text={`${isStockIn ? '+' : '-'}${formatNumber(numericQty)} ${activeUnitLabel}`}
+              tone={isStockIn ? 'primary' : reason === 'OUT_DAMAGE_EXPIRED' ? 'danger' : 'warning'}
+            />
+          </View>
+
+          {!isStockIn ? (
+            <SegmentedToggle
+              options={OUT_REASON_OPTIONS}
+              selectedKey={reason}
+              onSelect={(k) => setReason(k as 'OUT_CONSUMPTION' | 'OUT_DAMAGE_EXPIRED')}
+            />
+          ) : null}
+
+          {supportsPackMode ? (
+            <SegmentedToggle
+              options={unitModeOptions}
+              selectedKey={effectiveUnitMode}
+              onSelect={(k) => setUnitMode(k as UnitMode)}
+            />
+          ) : null}
+
+          <View style={styles.numberFieldRow}>
+            <Pressable
+              onPress={() => adjustQty(-1)}
+              accessibilityRole="button"
+              accessibilityLabel="Giảm 1 đơn vị"
+              android_ripple={{ color: theme.ripple }}
+              style={({ pressed }) => [
+                styles.stepperBtn,
+                {
+                  backgroundColor: theme.surfaceAlt,
+                  borderColor: theme.border,
+                  opacity: pressed ? 0.75 : 1,
+                },
+              ]}
+            >
+              <Ionicons name="remove" size={22} color={theme.text} />
+            </Pressable>
+
+            <TextInput
+              value={qtyText}
+              onChangeText={setQtyText}
+              keyboardType="numeric"
+              selectTextOnFocus
+              accessibilityLabel="Ô điền số lượng"
+              placeholder="0"
+              placeholderTextColor={theme.textMuted}
+              style={[
+                styles.numberInput,
+                {
+                  backgroundColor: theme.surfaceAlt,
+                  color: theme.text,
+                  borderColor: fillColor,
+                },
+              ]}
+            />
+
+            <Pressable
+              onPress={() => adjustQty(1)}
+              accessibilityRole="button"
+              accessibilityLabel="Tăng 1 đơn vị"
+              android_ripple={{ color: theme.ripple }}
+              style={({ pressed }) => [
+                styles.stepperBtn,
+                {
+                  backgroundColor: isStockIn ? theme.primarySoft : theme.secondarySoft,
+                  borderColor: fillColor,
+                  opacity: pressed ? 0.75 : 1,
+                },
+              ]}
+            >
+              <Ionicons name="add" size={22} color={fillColor} />
+            </Pressable>
+          </View>
+
+          <View
+            {...panResponder.panHandlers}
+            onLayout={(e) => {
+              trackWidthRef.current = Math.max(1, e.nativeEvent.layout.width);
+            }}
+            accessibilityLabel="Thanh trượt chọn số lượng"
+            style={styles.sliderTouchArea}
+          >
+            <View
+              pointerEvents="none"
+              style={[styles.sliderTrack, { backgroundColor: theme.surfaceAlt, borderColor: theme.border }]}
+            >
+              {sliderRatio > 0 ? (
+                <View style={[styles.sliderFill, { flex: sliderRatio, backgroundColor: fillColor }]} />
+              ) : null}
+              {1 - sliderRatio > 0 ? (
+                <View style={[styles.sliderRemain, { flex: 1 - sliderRatio }]} />
+              ) : null}
+            </View>
+          </View>
+
+          <View style={styles.rowBetween}>
+            <Text style={[styles.scaleLabel, { color: theme.textMuted }]}>0</Text>
+            <Text style={[styles.scaleLabel, { color: theme.textMuted }]}>
+              {Math.round(effectiveSliderMax / 2)}
+            </Text>
+            <Text style={[styles.scaleLabel, { color: theme.textMuted }]}>
+              {effectiveSliderMax} {activeUnitLabel}
+            </Text>
+          </View>
+
+          {isStockIn ? (
+            <View style={styles.presetRow}>
+              <ActionButton label="+5" variant="outline" style={styles.flexOne} onPress={() => adjustQty(5)} />
+              <ActionButton label="+10" variant="outline" style={styles.flexOne} onPress={() => adjustQty(10)} />
+              <ActionButton label="+20" variant="outline" style={styles.flexOne} onPress={() => adjustQty(20)} />
+              <ActionButton label="+50" variant="outline" style={styles.flexOne} onPress={() => adjustQty(50)} />
+            </View>
+          ) : (
+            <View style={styles.presetRow}>
+              <ActionButton label="1" variant="outline" style={styles.flexOne} onPress={() => setQtyText('1')} />
+              <ActionButton label="2" variant="outline" style={styles.flexOne} onPress={() => setQtyText('2')} />
+              <ActionButton label="5" variant="outline" style={styles.flexOne} onPress={() => setQtyText('5')} />
+              <ActionButton label="10" variant="outline" style={styles.flexOne} onPress={() => setQtyText('10')} />
+            </View>
+          )}
+
+          <TextInput
+            value={note}
+            onChangeText={setNote}
+            placeholder="Ghi chú (tùy chọn)..."
+            placeholderTextColor={theme.textMuted}
+            style={[
+              styles.input,
+              { backgroundColor: theme.surfaceAlt, color: theme.text, borderColor: theme.border },
+            ]}
+          />
 
           <View
             style={[
@@ -650,25 +667,24 @@ export function ConsumptionScreen() {
               },
             ]}
           >
-            <Text style={[styles.previewProduct, { color: theme.text }]}>{activeProduct.name}</Text>
             <View style={styles.mathRow}>
               <View style={styles.mathCell}>
-                <Text style={[styles.mathLabel, { color: theme.textMuted }]}>Tồn hiện tại</Text>
+                <Text style={[styles.mathLabel, { color: theme.textMuted }]}>Tồn trước</Text>
                 <Text style={[styles.mathValue, { color: theme.text }]}>
                   {formatNumber(beforeStock)} {activeProduct.unit}
                 </Text>
               </View>
-              <Ionicons name="arrow-forward" size={18} color={theme.textMuted} />
+              <Ionicons name="arrow-forward" size={16} color={theme.textMuted} />
               <View style={styles.mathCell}>
                 <Text style={[styles.mathLabel, { color: theme.textMuted }]}>
-                  {isStockIn ? 'Nhập thêm' : 'Xuất đi'}
+                  {isStockIn ? 'Nhập' : 'Xuất'}
                 </Text>
                 <Text style={[styles.mathValue, { color: isStockIn ? theme.primary : theme.danger }]}>
                   {isStockIn ? `+${formatNumber(baseDeltaQty)}` : `-${formatNumber(baseDeltaQty)}`}{' '}
                   {activeProduct.unit}
                 </Text>
               </View>
-              <Ionicons name="arrow-forward" size={18} color={theme.textMuted} />
+              <Ionicons name="arrow-forward" size={16} color={theme.textMuted} />
               <View style={styles.mathCell}>
                 <Text style={[styles.mathLabel, { color: theme.textMuted }]}>Tồn mới</Text>
                 <Text
@@ -681,12 +697,9 @@ export function ConsumptionScreen() {
                 </Text>
               </View>
             </View>
-            <Text style={[styles.subText, { color: theme.textMuted }]}>
-              Người ghi sổ: {user?.full_name} ({isManager ? 'Chủ kho' : 'Nhân viên'}) · Tự động lưu vào Lịch sử Kiểm kê
-            </Text>
             {negativeBlocked ? (
               <Text style={[styles.warnText, { color: theme.danger }]}>
-                Số lượng xuất vượt quá tồn hiện có ({formatNumber(beforeStock)} {activeProduct.unit}).
+                Vượt quá tồn hiện có ({formatNumber(beforeStock)} {activeProduct.unit}).
               </Text>
             ) : null}
           </View>
@@ -696,13 +709,13 @@ export function ConsumptionScreen() {
               <Text style={[styles.anomalyText, { color: theme.text }]}>{anomalyPending.message}</Text>
               <View style={styles.presetRow}>
                 <ActionButton
-                  label="Hủy (Gõ nhầm)"
+                  label="Hủy"
                   variant="outline"
                   style={styles.flexOne}
                   onPress={() => setAnomalyPending(null)}
                 />
                 <ActionButton
-                  label="Chắc chắn xuất"
+                  label="Xác nhận xuất"
                   variant="danger"
                   style={styles.flexOne}
                   loading={submitting}
@@ -722,7 +735,7 @@ export function ConsumptionScreen() {
               isStockIn
                 ? `Xác nhận Nhập +${formatNumber(baseDeltaQty)} ${activeProduct.unit}`
                 : reason === 'OUT_DAMAGE_EXPIRED'
-                  ? `Ghi nhận Hàng hỏng -${formatNumber(baseDeltaQty)} ${activeProduct.unit}`
+                  ? `Ghi nhận Hỏng -${formatNumber(baseDeltaQty)} ${activeProduct.unit}`
                   : `Xác nhận Xuất -${formatNumber(baseDeltaQty)} ${activeProduct.unit}`
             }
             icon={isStockIn ? 'arrow-down-circle-outline' : 'checkmark-done-outline'}
@@ -735,11 +748,13 @@ export function ConsumptionScreen() {
       );
     },
     [
+      products.length,
       theme,
-      isStockIn,
+      setActiveTab,
       productSearch,
       productChipOptions,
       activeProduct,
+      isStockIn,
       reason,
       numericQty,
       activeUnitLabel,
@@ -754,8 +769,6 @@ export function ConsumptionScreen() {
       adjustQty,
       baseDeltaQty,
       store?.allow_negative_stock,
-      user?.full_name,
-      isManager,
       anomalyPending,
       submitting,
       submitMovementPayload,
@@ -777,7 +790,7 @@ export function ConsumptionScreen() {
   return (
     <View style={[styles.container, { backgroundColor: theme.bg }]}>
       <View style={[styles.topBar, { backgroundColor: theme.surface, borderBottomColor: theme.border }]}>
-        <ChipRow
+        <SegmentedToggle
           options={isManager ? MANAGER_MODE_TABS : STAFF_MODE_TABS}
           selectedKey={mode}
           onSelect={(k) => {
@@ -793,22 +806,9 @@ export function ConsumptionScreen() {
             }
           }}
         />
-        <View style={[styles.roleNoticeBar, { backgroundColor: theme.surfaceAlt }]}>
-          <Ionicons
-            name={isManager ? 'shield-checkmark-outline' : 'person-outline'}
-            size={18}
-            color={isManager ? theme.primary : theme.secondary}
-          />
-          <Text style={[styles.roleNoticeText, { color: theme.textMuted }]}>
-            {user?.full_name} (@{user?.username}) ·{' '}
-            {isManager
-              ? 'Chủ kho: Được phép Xuất tiêu hao & Nhập thêm hàng'
-              : 'Nhân viên: Xuất tiêu hao theo ca (Chỉ Chủ kho được Nhập thêm hàng)'}
-          </Text>
-        </View>
         {pending.length > 0 ? (
           <ActionButton
-            label={`Đang có ${pending.length} giao dịch Offline — Đồng bộ ngay`}
+            label={`Đồng bộ ${pending.length} giao dịch Offline`}
             variant="warning"
             icon="cloud-upload-outline"
             onPress={() => void flushQueue().then(refreshAll)}
@@ -821,11 +821,11 @@ export function ConsumptionScreen() {
               <Pressable
                 onPress={() => setActiveTab('stocktake')}
                 accessibilityRole="button"
-                accessibilityLabel="Xem lịch sử sửa đổi ở mục Kiểm kê"
+                accessibilityLabel="Xem lịch sử tại Kiểm kê"
                 style={({ pressed }) => [styles.auditLinkBtn, { opacity: pressed ? 0.75 : 1 }]}
               >
                 <Text style={[styles.auditLinkText, { color: theme.primary }]}>
-                  Xem lịch sử sửa đổi trong mục Kiểm kê →
+                  Xem lịch sử tại Kiểm kê →
                 </Text>
               </Pressable>
             ) : null}
@@ -840,13 +840,20 @@ export function ConsumptionScreen() {
             renderItem={renderShiftRow}
             keyExtractor={(item) => String(item.id)}
             contentContainerStyle={styles.listContent}
+            ListEmptyComponent={
+              <View style={styles.emptyBox}>
+                <Text style={[styles.subText, { color: theme.textMuted }]}>
+                  Chưa có mặt hàng nào để chốt ca.
+                </Text>
+              </View>
+            }
           />
           <View style={[styles.bottomBar, { backgroundColor: theme.surface, borderTopColor: theme.border }]}>
             <Text style={[styles.subText, { color: theme.textMuted }]}>
-              Đã chọn: {shiftSummary.selectedItems} mặt hàng · Tổng trừ ca: -{formatNumber(shiftSummary.totalQty)} ĐV
+              Đã chọn: {shiftSummary.selectedItems} SP · Tổng trừ: -{formatNumber(shiftSummary.totalQty)}
             </Text>
             <ActionButton
-              label="Gửi Chốt tiêu thụ cuối ca"
+              label="Gửi Chốt cuối ca"
               icon="send-outline"
               variant="secondary"
               loading={submitting}
@@ -857,7 +864,7 @@ export function ConsumptionScreen() {
         </View>
       ) : (
         <FlatList
-          data={singleFormSections}
+          data={SINGLE_FORM_SECTIONS}
           renderItem={renderSingleForm}
           keyExtractor={(i) => i}
           contentContainerStyle={styles.listContent}
@@ -867,7 +874,7 @@ export function ConsumptionScreen() {
 
       <BarcodeScannerModal
         visible={scannerOpen}
-        title="Quét mã sản phẩm Xuất / Nhập"
+        title="Quét mã sản phẩm"
         onScan={handleBarcodeScan}
         onClose={() => setScannerOpen(false)}
       />
@@ -883,22 +890,14 @@ const styles = StyleSheet.create({
     borderBottomWidth: 1,
     gap: SPACING.sm,
   },
-  roleNoticeBar: {
-    borderRadius: RADIUS.md,
-    paddingHorizontal: SPACING.md,
-    paddingVertical: SPACING.xs,
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: SPACING.xs,
-  },
-  roleNoticeText: { fontSize: 12, flex: 1 },
   statusBox: {
     borderRadius: RADIUS.md,
     borderWidth: 1,
-    padding: SPACING.md,
-    gap: SPACING.xs,
+    paddingHorizontal: SPACING.md,
+    paddingVertical: SPACING.sm,
+    gap: 4,
   },
-  statusMsg: { fontSize: 13, fontWeight: '500', lineHeight: 19 },
+  statusMsg: { fontSize: 13, fontWeight: '500' },
   auditLinkBtn: {
     minHeight: TOUCH_MIN,
     justifyContent: 'center',
@@ -913,6 +912,33 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     padding: SPACING.lg,
     gap: SPACING.md,
+  },
+  searchRow: {
+    flexDirection: 'row',
+    gap: SPACING.sm,
+    alignItems: 'center',
+  },
+  searchBox: {
+    flex: 1,
+    minHeight: TOUCH_MIN,
+    borderRadius: RADIUS.md,
+    borderWidth: 1,
+    paddingHorizontal: SPACING.md,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: SPACING.sm,
+  },
+  searchInput: {
+    flex: 1,
+    minHeight: TOUCH_MIN,
+    fontSize: 15,
+  },
+  scanBtn: {
+    minWidth: TOUCH_MIN,
+    minHeight: TOUCH_MIN,
+    borderRadius: RADIUS.md,
+    justifyContent: 'center',
+    alignItems: 'center',
   },
   shiftCard: {
     borderRadius: RADIUS.lg,
@@ -929,14 +955,8 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     gap: SPACING.sm,
   },
-  rowGap: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: SPACING.xs,
-  },
-  gapXs: { gap: SPACING.xs },
   sectionTitle: { fontSize: 15, fontWeight: '600', flex: 1 },
-  itemName: { fontSize: 15, fontWeight: '600', flex: 1 },
+  itemName: { fontSize: 15, fontWeight: '600' },
   subText: { fontSize: 13, lineHeight: 18 },
   presetRow: { flexDirection: 'row', gap: SPACING.sm },
   input: {
@@ -992,9 +1012,8 @@ const styles = StyleSheet.create({
     borderRadius: RADIUS.md,
     borderWidth: 1,
     padding: SPACING.md,
-    gap: SPACING.sm,
+    gap: SPACING.xs,
   },
-  previewProduct: { fontSize: 14, fontWeight: '700' },
   mathRow: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -1035,5 +1054,9 @@ const styles = StyleSheet.create({
     padding: SPACING.lg,
     borderTopWidth: 1,
     gap: SPACING.sm,
+  },
+  emptyBox: {
+    padding: SPACING.xl,
+    alignItems: 'center',
   },
 });

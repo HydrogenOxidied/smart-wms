@@ -21,11 +21,30 @@ from app.services.products import normalize_vi_text
 DEMO_CREDENTIAL = os.getenv("WMS_DEMO_PASS", "SAMPLE_Demo123!")
 
 
+def _pick_demo_username(db: Session, base: str) -> str:
+    """Return `base` if free, otherwise a collision-free demo username."""
+    if not db.scalar(select(User.id).where(User.username == base)):
+        return base
+    for idx in range(1, 100):
+        candidate = f"demo_{base}" if idx == 1 else f"demo_{base}_{idx}"
+        if not db.scalar(select(User.id).where(User.username == candidate)):
+            return candidate
+    return f"demo_{base}_{random.randint(1000, 9999)}"
+
+
 def seed_demo_data_if_empty(db: Session) -> None:
-    """Populate realistic store, users, products, 65-day consumption ledger, and blind stocktake."""
+    """Populate demo store only when the database has zero stores (used by test fixtures)."""
     existing_stores = db.scalar(select(func.count(Store.id)))
     if existing_stores and existing_stores > 0:
         return
+    ensure_demo_store_seeded(db)
+
+
+def ensure_demo_store_seeded(db: Session) -> Store:
+    """Lazily create and return the MOC_BAKERY demo workspace on first demo login."""
+    existing = db.scalar(select(Store).where(Store.code == "MOC_BAKERY"))
+    if existing:
+        return existing
 
     store = Store(
         name="Tiệm Bánh & Cafe Mộc",
@@ -40,14 +59,14 @@ def seed_demo_data_if_empty(db: Session) -> None:
     hashed = hash_secret(DEMO_CREDENTIAL)
     manager = User(
         store_id=store.id,
-        username="manager",
+        username=_pick_demo_username(db, "manager"),
         full_name="Minh Anh (Chủ kho)",
         hashed_secret=hashed,
         role="MANAGER",
     )
     staff = User(
         store_id=store.id,
-        username="staff",
+        username=_pick_demo_username(db, "staff"),
         full_name="Hoàng Nam (Nhân viên kho)",
         hashed_secret=hashed,
         role="STAFF",
@@ -425,3 +444,5 @@ def seed_demo_data_if_empty(db: Session) -> None:
     )
 
     db.commit()
+    db.refresh(store)
+    return store

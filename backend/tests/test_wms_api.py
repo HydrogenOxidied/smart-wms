@@ -5,11 +5,12 @@ import uuid
 
 from fastapi.testclient import TestClient
 import pytest
+from sqlalchemy import select
 from sqlalchemy.orm import sessionmaker
 
 from app.core.database import Base, build_engine, get_db
 from app.main import create_app
-from app.models.entities import StockMovement
+from app.models.entities import StockMovement, Store
 from app.seed import seed_demo_data_if_empty
 
 
@@ -640,3 +641,70 @@ def test_audit_summary_and_manager_only_stockin(client_and_db):
     ).json()
     assert len(staff_only_logs) >= 2
     assert all(m["user_role"] == "STAFF" for m in staff_only_logs)
+
+
+def test_lazy_demo_seed_on_empty_db_and_deleted_product_excluded_from_audit(tmp_path: Path):
+    db_file = tmp_path / "empty_wms.db"
+    engine = build_engine(f"sqlite:///{db_file.as_posix()}")
+    TestingSessionLocal = sessionmaker(bind=engine, autoflush=False, autocommit=False, expire_on_commit=False)
+    Base.metadata.create_all(bind=engine)
+
+    app = create_app()
+    app.router.lifespan_context = lambda _app: _noop_lifespan()
+
+    def _override_get_db():
+        db = TestingSessionLocal()
+        try:
+            yield db
+        finally:
+            db.close()
+
+    app.dependency_overrides[get_db] = _override_get_db
+
+    with TestingSessionLocal() as db:
+        assert db.scalars(select(Store)).all() == []
+
+    with TestClient(app) as client:
+        # Register a real empty store; demo store is NOT auto-seeded
+        reg = client.post(
+            "/api/v1/auth/register-store",
+            json={
+                "store_name": "Kho Sạch",
+                "manager_username": "manager",
+                "manager_full_name": "Chủ Kho Thật",
+                "manager_secret": "SAMPLE_CleanDb99!",
+                "industry_template": "EMPTY",
+                "lite_mode": True,
+            },
+        )
+        assert reg.status_code == 201, reg.text
+        mgr_headers = {"Authorization": f"Bearer {reg.json()['access_token']}"}
+        assert client.get("/api/v1/products", headers=mgr_headers).json() == []
+        assert client.get("/api/v1/movements", headers=mgr_headers).json() == []
+
+        with TestingSessionLocal() as db:
+            assert db.scalar(select(Store).where(Store.code == "MOC_BAKERY")) is None
+
+        # Create product -> movement -> soft-delete product -> excluded from audit & movements
+        created = client.post(
+            "/api/v1/products",
+            json={"name": "Mắm tép thử nghiệm", "unit": "Hũ", "current_stock": 12},
+            headers=mgr_headers,
+        )
+        assert created.status_code == 201
+        prod_id = created.json()["id"]
+        assert len(client.get("/api/v1/movements", headers=mgr_headers).json()) == 1
+
+        del_res = client.delete(f"/api/v1/products/{prod_id}", headers=mgr_headers)
+        assert del_res.status_code == 200
+        assert client.get("/api/v1/movements", headers=mgr_headers).json() == []
+
+        summary_after_del = client.get("/api/v1/movements/summary", headers=mgr_headers).json()
+        assert summary_after_del["owner_imported_total"] == pytest.approx(0.0)
+        assert summary_after_del["products"] == []
+
+        # Clicking Demo lazily creates MOC_BAKERY even when real user took username "manager"
+        demo_res = client.post("/api/v1/auth/demo-login", json={"role": "MANAGER"})
+        assert demo_res.status_code == 200, demo_res.text
+        assert demo_res.json()["store"]["code"] == "MOC_BAKERY"
+        assert demo_res.json()["user"]["username"] != "manager"

@@ -30,6 +30,17 @@ interface TrendRow {
   kind: 'HISTORY' | 'FORECAST';
 }
 
+function getTierLabel(tier: ProductForecast['algorithm_tier']): string {
+  switch (tier) {
+    case 'HOLT_WINTERS':
+      return 'Theo mùa';
+    case 'EWMA_WEEKLY':
+      return 'Xu hướng tuần';
+    default:
+      return 'Mới tạo';
+  }
+}
+
 const ForecastCard = React.memo(
   ({
     item,
@@ -77,9 +88,9 @@ const ForecastCard = React.memo(
         </View>
 
         <View style={styles.badgeLine}>
-          <StatusPill text={item.algorithm_tier} tone="secondary" />
+          <StatusPill text={getTierLabel(item.algorithm_tier)} tone="secondary" />
           <Text style={[styles.subText, { color: theme.textMuted }]}>
-            {item.history_days} ngày dữ liệu · TB {item.avg_daily_demand} {item.unit}/ngày
+            TB {item.avg_daily_demand} {item.unit}/ngày
           </Text>
         </View>
 
@@ -258,10 +269,7 @@ export function ForecastScreen() {
         ListHeaderComponent={
           <View style={[styles.card, styles.headerGap, { backgroundColor: theme.surface, borderColor: theme.border }]}>
             <Text style={[styles.headerTitle, { color: theme.text }]}>
-              AI Dự báo Nhu cầu & Tối ưu Nhập hàng
-            </Text>
-            <Text style={[styles.subText, { color: theme.textMuted }]}>
-              Chỉ học từ OUT_CONSUMPTION (loại trừ hàng hỏng/hết hạn). Tự chọn mô hình 3 tầng: Cold-Start, EWMA tuần & Holt-Winters.
+              Dự báo nhu cầu & Đặt hàng
             </Text>
             <View style={styles.summaryRow}>
               <StatusPill text={`Khẩn cấp: ${overview?.critical_count ?? 0}`} tone="danger" />
@@ -269,17 +277,25 @@ export function ForecastScreen() {
               <StatusPill text={`An toàn: ${overview?.healthy_count ?? 0}`} tone="primary" />
             </View>
             <Text style={[styles.poCost, { color: theme.text }]}>
-              Tổng dự toán phiếu nhập đề xuất: {formatCurrencyVnd(overview?.total_suggested_po_cost ?? 0)}
+              Dự toán nhập: {formatCurrencyVnd(overview?.total_suggested_po_cost ?? 0)}
             </Text>
             {exportMsg ? (
               <Text style={[styles.subText, { color: theme.secondary }]}>{exportMsg}</Text>
             ) : null}
             <ActionButton
-              label="Xuất Phiếu Đề Xuất Nhập Hàng (Draft PO CSV)"
+              label="Xuất phiếu đề xuất (CSV)"
               icon="download-outline"
               loading={exporting}
+              disabled={!overview || overview.items.length === 0}
               onPress={() => void handleExportPo()}
             />
+          </View>
+        }
+        ListEmptyComponent={
+          <View style={styles.emptyBox}>
+            <Text style={[styles.subText, { color: theme.textMuted }]}>
+              Chưa có dữ liệu mặt hàng để dự báo.
+            </Text>
           </View>
         }
       />
@@ -290,27 +306,30 @@ export function ForecastScreen() {
         onRequestClose={handleCloseDetail}
       >
         <SafeAreaView style={[styles.container, { backgroundColor: theme.bg }]}>
-          <View style={[styles.modalHeader, { backgroundColor: theme.surface, borderBottomColor: theme.border }]}>
-            <View style={styles.flexOne}>
-              <Text style={[styles.itemName, { color: theme.text }]} numberOfLines={1}>
-                {selectedForecast?.name}
-              </Text>
-              <Text style={[styles.subText, { color: theme.textMuted }]}>
-                Mô hình: {selectedForecast?.algorithm_tier} · {selectedForecast?.history_days} ngày dữ liệu
-              </Text>
+          <View style={[styles.modalHeaderWrap, { backgroundColor: theme.surface, borderBottomColor: theme.border }]}>
+            <View style={styles.modalHeaderInner}>
+              <View style={styles.flexOne}>
+                <Text style={[styles.itemName, { color: theme.text }]} numberOfLines={1}>
+                  {selectedForecast?.name}
+                </Text>
+                <Text style={[styles.subText, { color: theme.textMuted }]}>
+                  {selectedForecast ? getTierLabel(selectedForecast.algorithm_tier) : ''} ·{' '}
+                  {selectedForecast?.history_days} ngày dữ liệu
+                </Text>
+              </View>
+              <Pressable
+                onPress={handleCloseDetail}
+                accessibilityRole="button"
+                accessibilityLabel="Đóng chi tiết dự báo"
+                android_ripple={{ color: theme.ripple }}
+                style={({ pressed }) => [
+                  styles.closeBtn,
+                  { backgroundColor: theme.surfaceAlt, opacity: pressed ? 0.75 : 1 },
+                ]}
+              >
+                <Ionicons name="close" size={22} color={theme.text} />
+              </Pressable>
             </View>
-            <Pressable
-              onPress={handleCloseDetail}
-              accessibilityRole="button"
-              accessibilityLabel="Đóng chi tiết dự báo"
-              android_ripple={{ color: theme.ripple }}
-              style={({ pressed }) => [
-                styles.closeBtn,
-                { backgroundColor: theme.surfaceAlt, opacity: pressed ? 0.75 : 1 },
-              ]}
-            >
-              <Ionicons name="close" size={24} color={theme.text} />
-            </Pressable>
           </View>
 
           {selectedForecast ? (
@@ -391,13 +410,22 @@ const styles = StyleSheet.create({
   subText: { fontSize: 13, lineHeight: 19 },
   poCost: { fontSize: 15, fontWeight: '600' },
   suggestText: { fontSize: 14, fontWeight: '600' },
-  modalHeader: {
+  modalHeaderWrap: {
+    borderBottomWidth: 1,
+  },
+  modalHeaderInner: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
     padding: SPACING.lg,
-    borderBottomWidth: 1,
     gap: SPACING.md,
+    maxWidth: 760,
+    width: '100%',
+    alignSelf: 'center',
+  },
+  emptyBox: {
+    padding: SPACING.xl,
+    alignItems: 'center',
   },
   closeBtn: {
     minWidth: TOUCH_MIN,

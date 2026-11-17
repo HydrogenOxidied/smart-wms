@@ -14,7 +14,12 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import * as DocumentPicker from 'expo-document-picker';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { Ionicons } from '@expo/vector-icons';
-import { ActionButton, ChipOption, ChipRow, StatusPill } from '../components/CommonUI';
+import {
+  ActionButton,
+  ChipOption,
+  SegmentedToggle,
+  StatusPill,
+} from '../components/CommonUI';
 import { api } from '../services/apiClient';
 import { useAuthStore } from '../store/authStore';
 import { useOfflineQueueStore } from '../store/offlineQueueStore';
@@ -27,7 +32,7 @@ import { formatCurrencyVnd, formatNumber, triggerSuccessHaptic } from '../utils/
 const THEME_OPTIONS: ChipOption[] = [
   { key: 'system', label: 'Tự động' },
   { key: 'light', label: 'Sáng' },
-  { key: 'dark', label: 'Tối OLED' },
+  { key: 'dark', label: 'Tối' },
 ];
 
 const AlertCard = React.memo(
@@ -44,13 +49,13 @@ const AlertCard = React.memo(
       <Pressable
         onPress={() => onPress(item.product_id)}
         accessibilityRole="button"
-        accessibilityLabel={`Xem dự báo nhập hàng cho ${item.name}`}
+        accessibilityLabel={`Xem dự báo nhập hàng ${item.name}`}
         android_ripple={{ color: theme.ripple }}
         style={({ pressed }) => [
           styles.alertItem,
           {
-            backgroundColor: theme.surface,
-            borderColor: isCritical ? theme.danger : theme.warning,
+            backgroundColor: theme.surfaceAlt,
+            borderColor: isCritical ? theme.danger : theme.border,
             opacity: pressed ? 0.85 : 1,
           },
         ]}
@@ -60,17 +65,13 @@ const AlertCard = React.memo(
             {item.name}
           </Text>
           <StatusPill
-            text={isCritical ? 'Khẩn cấp' : 'Sắp chạm ROP'}
+            text={isCritical ? 'Khẩn cấp' : 'Sắp hết'}
             tone={isCritical ? 'danger' : 'warning'}
           />
         </View>
         <Text style={[styles.alertMeta, { color: theme.textMuted }]}>
-          Tồn: {formatNumber(item.current_stock)} {item.unit} | ROP: {formatNumber(item.reorder_point)} | Còn{' '}
-          {item.days_until_stockout !== null ? `${item.days_until_stockout} ngày` : '—'}
-        </Text>
-        <Text style={[styles.alertSuggest, { color: theme.primary }]}>
-          Đề xuất nhập: {formatNumber(item.recommended_order_qty)} {item.unit} (
-          {formatCurrencyVnd(item.estimated_order_cost)})
+          Tồn {formatNumber(item.current_stock)} · Gợi ý nhập {formatNumber(item.recommended_order_qty)}{' '}
+          {item.unit} ({formatCurrencyVnd(item.estimated_order_cost)})
         </Text>
       </Pressable>
     );
@@ -97,7 +98,7 @@ const StaffRow = React.memo(
               {member.full_name}
             </Text>
             <StatusPill
-              text={member.role === 'MANAGER' ? 'Chủ kho' : member.is_active ? 'Đang hoạt động' : 'Đã khóa'}
+              text={member.role === 'MANAGER' ? 'Chủ kho' : member.is_active ? 'Hoạt động' : 'Đã khóa'}
               tone={member.role === 'MANAGER' ? 'primary' : member.is_active ? 'secondary' : 'danger'}
             />
           </View>
@@ -164,11 +165,7 @@ export function DashboardScreen() {
         const updated = await api.updateStore({ lite_mode: value });
         setStore(updated);
         await triggerSuccessHaptic();
-        setNotice(
-          value
-            ? 'Đã bật Lite Mode: Ưu tiên thêm nhanh 3 trường & thao tác chạm +/-.'
-            : 'Đã bật Warehouse Pro Mode: Hiện đầy đủ mã SKU, kệ & thông số kho.',
-        );
+        setNotice(value ? 'Đã bật chế độ tối giản.' : 'Đã bật chế độ đầy đủ thông số.');
       } catch (err) {
         setNotice(err instanceof Error ? err.message : 'Không cập nhật được chế độ.');
       }
@@ -193,7 +190,7 @@ export function DashboardScreen() {
         await triggerSuccessHaptic();
         handleRefresh();
         setNotice(
-          `Import xong: +${summary.created_products} SP mới, ${summary.updated_products} cập nhật, ${summary.imported_movements} lịch sử tiêu thụ.`,
+          `Import xong: +${summary.created_products} SP, ${summary.updated_products} cập nhật.`,
         );
       } catch (err) {
         setNotice(err instanceof Error ? err.message : 'Lỗi import file CSV.');
@@ -211,7 +208,7 @@ export function DashboardScreen() {
         const summary = await api.applyTemplate(key);
         await triggerSuccessHaptic();
         handleRefresh();
-        setNotice(`Đã nạp bộ mẫu: thêm ${summary.created_products} mặt hàng mới.`);
+        setNotice(`Đã nạp bộ mẫu: +${summary.created_products} mặt hàng.`);
       } catch (err) {
         setNotice(err instanceof Error ? err.message : 'Không thể nạp bộ mẫu.');
       } finally {
@@ -223,7 +220,7 @@ export function DashboardScreen() {
 
   const handleCreateStaff = useCallback(async () => {
     if (!newStaffUser.trim() || !newStaffSecret.trim()) {
-      setNotice('Vui lòng nhập Tên đăng nhập và Mật khẩu cho nhân viên mới.');
+      setNotice('Nhập tên đăng nhập và mật khẩu cho nhân viên.');
       return;
     }
     setCreatingStaff(true);
@@ -239,10 +236,10 @@ export function DashboardScreen() {
       setNewStaffName('');
       setNewStaffSecret('');
       setStaffModalOpen(false);
-      setNotice(`Đã thêm tài khoản nhân viên "@${created.username}".`);
+      setNotice(`Đã thêm nhân viên "@${created.username}".`);
       void queryClient.invalidateQueries({ queryKey: ['store-staff'] });
     } catch (err) {
-      setNotice(err instanceof Error ? err.message : 'Không thể tạo tài khoản nhân viên.');
+      setNotice(err instanceof Error ? err.message : 'Không tạo được nhân viên.');
     } finally {
       setCreatingStaff(false);
     }
@@ -253,14 +250,10 @@ export function DashboardScreen() {
       try {
         await api.updateStaffStatus(member.id, nextActive);
         await triggerSuccessHaptic();
-        setNotice(
-          nextActive
-            ? `Đã mở khóa tài khoản "@${member.username}".`
-            : `Đã tạm khóa tài khoản "@${member.username}".`,
-        );
+        setNotice(nextActive ? `Đã mở khóa @${member.username}.` : `Đã khóa @${member.username}.`);
         void queryClient.invalidateQueries({ queryKey: ['store-staff'] });
       } catch (err) {
-        setNotice(err instanceof Error ? err.message : 'Không thể cập nhật trạng thái nhân viên.');
+        setNotice(err instanceof Error ? err.message : 'Không cập nhật được trạng thái.');
       }
     },
     [queryClient],
@@ -276,7 +269,7 @@ export function DashboardScreen() {
   const staffMembers = staffQuery.data || [];
   const isDemoStore = store?.code === 'MOC_BAKERY';
 
-  const sections = ['header', 'kpis', 'alerts', 'staff', 'tools', 'account'];
+  const sections = ['kpis', 'alerts', 'staff', 'settings'];
 
   const renderStaffItem = useCallback(
     ({ item }: { item: User }) => (
@@ -298,44 +291,12 @@ export function DashboardScreen() {
 
   const renderSection = useCallback(
     ({ item }: { item: string }) => {
-      if (item === 'header') {
+      if (item === 'kpis') {
         return (
-          <View style={[styles.card, { backgroundColor: theme.surface, borderColor: theme.border }]}>
-            <View style={styles.rowBetween}>
-              <View style={styles.flexOne}>
-                <Text style={[styles.storeTitle, { color: theme.text }]} numberOfLines={1}>
-                  {store?.name || 'Kho PocketWMS'}
-                </Text>
-                <Text style={[styles.subText, { color: theme.textMuted }]}>
-                  Quản lý: {user?.full_name}
-                </Text>
-              </View>
-              <StatusPill
-                text={store?.lite_mode ? 'Lite Mode' : 'Pro Mode'}
-                tone={store?.lite_mode ? 'primary' : 'secondary'}
-              />
-            </View>
-
-            <View style={[styles.modeSwitchRow, { backgroundColor: theme.surfaceAlt }]}>
-              <View style={styles.flexOne}>
-                <Text style={[styles.modeTitle, { color: theme.text }]}>
-                  Chế độ Cửa hàng nhỏ (Lite Mode)
-                </Text>
-                <Text style={[styles.subText, { color: theme.textMuted }]}>
-                  Thu gọn form thêm hàng còn 3 trường & ưu tiên nút đếm +/- nhanh
-                </Text>
-              </View>
-              <Switch
-                value={Boolean(store?.lite_mode)}
-                onValueChange={(v) => void handleToggleLiteMode(v)}
-                trackColor={{ false: theme.border, true: theme.primarySoft }}
-                thumbColor={store?.lite_mode ? theme.primary : theme.textMuted}
-              />
-            </View>
-
+          <View style={styles.sectionBlock}>
             {pending.length > 0 ? (
               <ActionButton
-                label={`Đồng bộ ${pending.length} thao tác Offline ngay`}
+                label={`Đồng bộ ${pending.length} thao tác Offline`}
                 icon="cloud-upload-outline"
                 variant="warning"
                 loading={isSyncing}
@@ -346,43 +307,55 @@ export function DashboardScreen() {
             {notice ? (
               <Text style={[styles.noticeText, { color: theme.secondary }]}>{notice}</Text>
             ) : null}
-          </View>
-        );
-      }
 
-      if (item === 'kpis') {
-        return (
-          <View style={styles.kpiGrid}>
-            <View style={[styles.kpiCard, { backgroundColor: theme.surface, borderColor: theme.border }]}>
-              <Ionicons name="cube-outline" size={22} color={theme.primary} />
-              <Text style={[styles.kpiVal, { color: theme.text }]}>{totalProducts}</Text>
-              <Text style={[styles.kpiLabel, { color: theme.textMuted }]}>Tổng mặt hàng</Text>
+            <View style={styles.kpiGrid}>
+              <Pressable
+                onPress={() => setActiveTab('inventory')}
+                accessibilityRole="button"
+                accessibilityLabel="Xem mặt hàng trong Kho hàng"
+                android_ripple={{ color: theme.ripple }}
+                style={({ pressed }) => [
+                  styles.kpiCard,
+                  { backgroundColor: theme.surface, borderColor: theme.border, opacity: pressed ? 0.85 : 1 },
+                ]}
+              >
+                <Ionicons name="cube-outline" size={20} color={theme.primary} />
+                <Text style={[styles.kpiVal, { color: theme.text }]}>{totalProducts}</Text>
+                <Text style={[styles.kpiLabel, { color: theme.textMuted }]}>Mặt hàng</Text>
+              </Pressable>
+
+              <Pressable
+                onPress={() => setActiveTab('forecast')}
+                accessibilityRole="button"
+                accessibilityLabel="Xem mặt hàng cần nhập sớm"
+                android_ripple={{ color: theme.ripple }}
+                style={({ pressed }) => [
+                  styles.kpiCard,
+                  { backgroundColor: theme.surface, borderColor: theme.border, opacity: pressed ? 0.85 : 1 },
+                ]}
+              >
+                <Ionicons name="alert-circle-outline" size={20} color={theme.danger} />
+                <Text style={[styles.kpiVal, { color: theme.danger }]}>
+                  {(overview?.critical_count ?? 0) + (overview?.reorder_soon_count ?? 0)}
+                </Text>
+                <Text style={[styles.kpiLabel, { color: theme.textMuted }]}>Cần nhập</Text>
+              </Pressable>
+
+              <Pressable
+                onPress={() => setActiveTab('stocktake')}
+                accessibilityRole="button"
+                accessibilityLabel="Mở lịch sử kiểm kê"
+                android_ripple={{ color: theme.ripple }}
+                style={({ pressed }) => [
+                  styles.kpiCard,
+                  { backgroundColor: theme.surface, borderColor: theme.border, opacity: pressed ? 0.85 : 1 },
+                ]}
+              >
+                <Ionicons name="clipboard-outline" size={20} color={theme.warning} />
+                <Text style={[styles.kpiVal, { color: theme.text }]}>{movementEventsCount}</Text>
+                <Text style={[styles.kpiLabel, { color: theme.primary }]}>Sửa đổi →</Text>
+              </Pressable>
             </View>
-            <View style={[styles.kpiCard, { backgroundColor: theme.surface, borderColor: theme.border }]}>
-              <Ionicons name="alert-circle-outline" size={22} color={theme.danger} />
-              <Text style={[styles.kpiVal, { color: theme.danger }]}>
-                {(overview?.critical_count ?? 0) + (overview?.reorder_soon_count ?? 0)}
-              </Text>
-              <Text style={[styles.kpiLabel, { color: theme.textMuted }]}>Cần nhập sớm</Text>
-            </View>
-            <Pressable
-              onPress={() => setActiveTab('stocktake')}
-              accessibilityRole="button"
-              accessibilityLabel="Mở lịch sử kiểm kê"
-              android_ripple={{ color: theme.ripple }}
-              style={({ pressed }) => [
-                styles.kpiCard,
-                {
-                  backgroundColor: theme.surface,
-                  borderColor: theme.border,
-                  opacity: pressed ? 0.85 : 1,
-                },
-              ]}
-            >
-              <Ionicons name="clipboard-outline" size={22} color={theme.warning} />
-              <Text style={[styles.kpiVal, { color: theme.text }]}>{movementEventsCount}</Text>
-              <Text style={[styles.kpiLabel, { color: theme.primary }]}>Lịch sử Kiểm kê →</Text>
-            </Pressable>
           </View>
         );
       }
@@ -391,21 +364,19 @@ export function DashboardScreen() {
         return (
           <View style={[styles.card, { backgroundColor: theme.surface, borderColor: theme.border }]}>
             <View style={styles.rowBetween}>
-              <Text style={[styles.sectionTitle, { color: theme.text }]}>
-                Cảnh báo Điểm đặt hàng lại (ROP)
-              </Text>
+              <Text style={[styles.sectionTitle, { color: theme.text }]}>Cảnh báo hết hàng</Text>
               <Pressable
                 onPress={() => setActiveTab('forecast')}
                 accessibilityRole="button"
-                accessibilityLabel="Xem toàn bộ dự báo AI"
+                accessibilityLabel="Xem dự báo AI"
                 style={({ pressed }) => [styles.linkTouch, { opacity: pressed ? 0.7 : 1 }]}
               >
-                <Text style={[styles.linkText, { color: theme.primary }]}>Xem tất cả →</Text>
+                <Text style={[styles.linkText, { color: theme.primary }]}>Dự báo →</Text>
               </Pressable>
             </View>
             {urgentItems.length === 0 ? (
               <Text style={[styles.subText, { color: theme.textMuted }]}>
-                Tất cả mặt hàng đang ở mức tồn an toàn.
+                Tồn kho đang ở mức an toàn.
               </Text>
             ) : (
               <FlatList
@@ -424,94 +395,78 @@ export function DashboardScreen() {
           <View style={[styles.card, { backgroundColor: theme.surface, borderColor: theme.border }]}>
             <View style={styles.rowBetween}>
               <Text style={[styles.sectionTitle, { color: theme.text }]}>
-                Nhân viên kho ({staffMembers.filter((m) => m.role === 'STAFF').length} — Không giới hạn)
+                Nhân viên ({staffMembers.filter((m) => m.role === 'STAFF').length})
               </Text>
-              <StatusPill text="Đa tài khoản" tone="secondary" />
+              <ActionButton
+                label="+ Thêm"
+                icon="person-add-outline"
+                variant="secondary"
+                onPress={() => setStaffModalOpen(true)}
+              />
             </View>
-            <Text style={[styles.subText, { color: theme.textMuted }]}>
-              Chủ cửa hàng có thể cấp không giới hạn tài khoản cho từng nhân viên quét mã & chốt ca riêng, lưu vết đầy đủ ai đã trừ kho.
-            </Text>
             <FlatList
               data={staffMembers}
               renderItem={renderStaffItem}
               keyExtractor={(m) => String(m.id)}
               contentContainerStyle={styles.alertList}
             />
-            <ActionButton
-              label="+ Thêm tài khoản Nhân viên"
-              icon="person-add-outline"
-              variant="secondary"
-              onPress={() => setStaffModalOpen(true)}
-            />
-          </View>
-        );
-      }
-
-      if (item === 'tools') {
-        return (
-          <View style={[styles.card, { backgroundColor: theme.surface, borderColor: theme.border }]}>
-            <Text style={[styles.sectionTitle, { color: theme.text }]}>
-              {isDemoStore
-                ? 'Nạp dữ liệu hàng loạt & Bộ mẫu Demo'
-                : 'Nhập dữ liệu hàng loạt (CSV)'}
-            </Text>
-            <View style={styles.btnStack}>
-              <ActionButton
-                label="Import Sản phẩm từ CSV"
-                icon="document-attach-outline"
-                variant="outline"
-                loading={importing}
-                onPress={() => void handleUploadCsv('products')}
-              />
-              <ActionButton
-                label="Import Lịch sử tiêu thụ CSV (Tăng độ chính xác AI)"
-                icon="analytics-outline"
-                variant="outline"
-                loading={importing}
-                onPress={() => void handleUploadCsv('history')}
-              />
-              {isDemoStore ? (
-                <View style={styles.btnStack}>
-                  <ActionButton
-                    label="+ Nạp mẫu Kho Shop Mắm Tép (Demo)"
-                    icon="cube-outline"
-                    variant="primary"
-                    loading={importing}
-                    onPress={() => void handleApplyTemplate('MAM_TEP')}
-                  />
-                  <View style={styles.splitRow}>
-                    <ActionButton
-                      label="+ Mẫu Cafe/Bánh"
-                      variant="secondary"
-                      style={styles.flexOne}
-                      loading={importing}
-                      onPress={() => void handleApplyTemplate('CAFE_BAKERY')}
-                    />
-                    <ActionButton
-                      label="+ Mẫu Kim khí"
-                      variant="outline"
-                      style={styles.flexOne}
-                      loading={importing}
-                      onPress={() => void handleApplyTemplate('HARDWARE')}
-                    />
-                  </View>
-                </View>
-              ) : null}
-            </View>
           </View>
         );
       }
 
       return (
         <View style={[styles.card, { backgroundColor: theme.surface, borderColor: theme.border }]}>
-          <Text style={[styles.sectionTitle, { color: theme.text }]}>Giao diện & Tài khoản</Text>
-          <ChipRow
+          <Text style={[styles.sectionTitle, { color: theme.text }]}>Cài đặt & Dữ liệu</Text>
+
+          <View style={[styles.modeSwitchRow, { backgroundColor: theme.surfaceAlt }]}>
+            <Text style={[styles.modeTitle, { color: theme.text, flex: 1 }]}>
+              Giao diện tối giản (Lite Mode)
+            </Text>
+            <Switch
+              value={Boolean(store?.lite_mode)}
+              onValueChange={(v) => void handleToggleLiteMode(v)}
+              trackColor={{ false: theme.border, true: theme.primarySoft }}
+              thumbColor={store?.lite_mode ? theme.primary : theme.textMuted}
+            />
+          </View>
+
+          <SegmentedToggle
             options={THEME_OPTIONS}
             selectedKey={themePref}
             onSelect={(k) => setThemePref(k as ThemePreference)}
           />
+
+          <View style={styles.splitRow}>
+            <ActionButton
+              label="Import SP CSV"
+              icon="document-attach-outline"
+              variant="outline"
+              style={styles.flexOne}
+              loading={importing}
+              onPress={() => void handleUploadCsv('products')}
+            />
+            <ActionButton
+              label="Import Lịch sử"
+              icon="analytics-outline"
+              variant="outline"
+              style={styles.flexOne}
+              loading={importing}
+              onPress={() => void handleUploadCsv('history')}
+            />
+          </View>
+
+          {isDemoStore ? (
+            <ActionButton
+              label="Nạp mẫu Shop Mắm Tép (Demo)"
+              icon="cube-outline"
+              variant="secondary"
+              loading={importing}
+              onPress={() => void handleApplyTemplate('MAM_TEP')}
+            />
+          ) : null}
+
           <ActionButton
-            label={isDemoStore ? 'Đăng xuất / Chuyển vai trò Demo' : 'Đăng xuất tài khoản'}
+            label={isDemoStore ? 'Thoát Demo' : 'Đăng xuất'}
             icon="log-out-outline"
             variant="danger"
             onPress={() => void logout()}
@@ -522,7 +477,6 @@ export function DashboardScreen() {
     [
       theme,
       store,
-      user,
       isDemoStore,
       pending.length,
       isSyncing,
@@ -570,25 +524,25 @@ export function DashboardScreen() {
         <SafeAreaView style={[styles.modalContainer, { backgroundColor: theme.bg }]}>
           <View
             style={[
-              styles.modalHeader,
+              styles.modalHeaderWrap,
               { backgroundColor: theme.surface, borderBottomColor: theme.border },
             ]}
           >
-            <Text style={[styles.sectionTitle, { color: theme.text }]}>
-              Cấp tài khoản Nhân viên mới
-            </Text>
-            <Pressable
-              onPress={() => setStaffModalOpen(false)}
-              accessibilityRole="button"
-              accessibilityLabel="Đóng biểu mẫu thêm nhân viên"
-              android_ripple={{ color: theme.ripple }}
-              style={({ pressed }) => [
-                styles.closeBtn,
-                { backgroundColor: theme.surfaceAlt, opacity: pressed ? 0.75 : 1 },
-              ]}
-            >
-              <Ionicons name="close" size={24} color={theme.text} />
-            </Pressable>
+            <View style={styles.modalHeaderInner}>
+              <Text style={[styles.sectionTitle, { color: theme.text }]}>Thêm tài khoản Nhân viên</Text>
+              <Pressable
+                onPress={() => setStaffModalOpen(false)}
+                accessibilityRole="button"
+                accessibilityLabel="Đóng biểu mẫu thêm nhân viên"
+                android_ripple={{ color: theme.ripple }}
+                style={({ pressed }) => [
+                  styles.closeBtn,
+                  { backgroundColor: theme.surfaceAlt, opacity: pressed ? 0.75 : 1 },
+                ]}
+              >
+                <Ionicons name="close" size={22} color={theme.text} />
+              </Pressable>
+            </View>
           </View>
 
           <View style={styles.modalBody}>
@@ -604,7 +558,7 @@ export function DashboardScreen() {
                 { backgroundColor: theme.surfaceAlt, color: theme.text, borderColor: theme.border },
               ]}
             />
-            <Text style={[styles.subText, { color: theme.textMuted }]}>Họ tên nhân viên</Text>
+            <Text style={[styles.subText, { color: theme.textMuted }]}>Họ tên</Text>
             <TextInput
               value={newStaffName}
               onChangeText={setNewStaffName}
@@ -615,7 +569,7 @@ export function DashboardScreen() {
                 { backgroundColor: theme.surfaceAlt, color: theme.text, borderColor: theme.border },
               ]}
             />
-            <Text style={[styles.subText, { color: theme.textMuted }]}>Mật khẩu đăng nhập *</Text>
+            <Text style={[styles.subText, { color: theme.textMuted }]}>Mật khẩu *</Text>
             <TextInput
               value={newStaffSecret}
               onChangeText={setNewStaffSecret}
@@ -628,7 +582,7 @@ export function DashboardScreen() {
               ]}
             />
             <ActionButton
-              label="Tạo tài khoản Nhân viên"
+              label="Tạo tài khoản"
               icon="checkmark-circle-outline"
               loading={creatingStaff}
               onPress={() => void handleCreateStaff()}
@@ -645,6 +599,7 @@ const styles = StyleSheet.create({
     padding: SPACING.lg,
     gap: SPACING.md,
   },
+  sectionBlock: { gap: SPACING.sm },
   flexOne: { flex: 1 },
   card: {
     borderRadius: RADIUS.lg,
@@ -658,21 +613,17 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     gap: SPACING.sm,
   },
-  storeTitle: {
-    fontSize: 18,
-    fontWeight: '700',
-  },
   sectionTitle: {
     fontSize: 16,
-    fontWeight: '600',
+    fontWeight: '700',
   },
   subText: {
     fontSize: 13,
-    lineHeight: 19,
   },
   modeSwitchRow: {
     borderRadius: RADIUS.md,
-    padding: SPACING.md,
+    paddingHorizontal: SPACING.md,
+    paddingVertical: SPACING.sm,
     flexDirection: 'row',
     alignItems: 'center',
     gap: SPACING.md,
@@ -691,6 +642,7 @@ const styles = StyleSheet.create({
   },
   kpiCard: {
     flex: 1,
+    minHeight: TOUCH_MIN,
     borderRadius: RADIUS.lg,
     borderWidth: 1,
     padding: SPACING.md,
@@ -702,6 +654,7 @@ const styles = StyleSheet.create({
   },
   kpiLabel: {
     fontSize: 12,
+    fontWeight: '600',
   },
   linkTouch: {
     minHeight: TOUCH_MIN,
@@ -729,13 +682,6 @@ const styles = StyleSheet.create({
   alertMeta: {
     fontSize: 12,
   },
-  alertSuggest: {
-    fontSize: 13,
-    fontWeight: '600',
-  },
-  btnStack: {
-    gap: SPACING.sm,
-  },
   splitRow: {
     flexDirection: 'row',
     gap: SPACING.sm,
@@ -750,12 +696,15 @@ const styles = StyleSheet.create({
     gap: SPACING.sm,
   },
   modalContainer: { flex: 1 },
-  modalHeader: {
+  modalHeaderWrap: { borderBottomWidth: 1 },
+  modalHeaderInner: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
     padding: SPACING.lg,
-    borderBottomWidth: 1,
+    maxWidth: 460,
+    width: '100%',
+    alignSelf: 'center',
   },
   closeBtn: {
     minWidth: TOUCH_MIN,
@@ -767,6 +716,9 @@ const styles = StyleSheet.create({
   modalBody: {
     padding: SPACING.lg,
     gap: SPACING.md,
+    maxWidth: 460,
+    width: '100%',
+    alignSelf: 'center',
   },
   input: {
     minHeight: TOUCH_MIN,

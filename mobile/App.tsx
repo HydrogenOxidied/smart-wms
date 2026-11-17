@@ -101,6 +101,10 @@ function RootShell() {
   }, [hydrate, hydrateQueue]);
 
   useEffect(() => {
+    queryClient.clear();
+  }, [user?.id, store?.id]);
+
+  useEffect(() => {
     if (!user) return;
     if (user.role === 'MANAGER') {
       if (activeTab === 'account') {
@@ -153,24 +157,29 @@ function RootShell() {
   return (
     <SafeAreaView style={[styles.container, { backgroundColor: theme.bg }]}>
       <StatusBar style={theme.mode === 'dark' ? 'light' : 'dark'} />
-      <View style={[styles.appHeader, { backgroundColor: theme.surface, borderBottomColor: theme.border }]}>
-        <View style={styles.flexOne}>
-          <Text style={[styles.appTitle, { color: theme.text }]} numberOfLines={1}>
-            {store?.name || 'PocketWMS'}
-          </Text>
-        </View>
-        <View style={styles.headerBadges}>
-          {pending.length > 0 ? (
-            <StatusPill text={`Offline: ${pending.length}`} tone="warning" />
-          ) : null}
-          <StatusPill
-            text={user.role === 'MANAGER' ? 'Chủ kho' : 'Nhân viên'}
-            tone={user.role === 'MANAGER' ? 'primary' : 'secondary'}
-          />
+      <View style={[styles.appHeaderWrap, { backgroundColor: theme.surface, borderBottomColor: theme.border }]}>
+        <View style={styles.appHeaderInner}>
+          <View style={styles.flexOne}>
+            <Text style={[styles.appTitle, { color: theme.text }]} numberOfLines={1}>
+              {store?.name || 'PocketWMS'}
+            </Text>
+            <Text style={[styles.appSubtitle, { color: theme.textMuted }]} numberOfLines={1}>
+              @{user.username}
+            </Text>
+          </View>
+          <View style={styles.headerBadges}>
+            {pending.length > 0 ? (
+              <StatusPill text={`Offline: ${pending.length}`} tone="warning" />
+            ) : null}
+            <StatusPill
+              text={user.role === 'MANAGER' ? 'Chủ kho' : 'Nhân viên'}
+              tone={user.role === 'MANAGER' ? 'primary' : 'secondary'}
+            />
+          </View>
         </View>
       </View>
 
-      <View style={styles.flexOne}>
+      <View style={styles.contentShell}>
         {activeTab === 'dashboard' && user.role === 'MANAGER' ? <DashboardScreen /> : null}
         {activeTab === 'inventory' ? <InventoryScreen /> : null}
         {activeTab === 'consumption' ? <ConsumptionScreen /> : null}
@@ -180,14 +189,16 @@ function RootShell() {
       </View>
 
       <View style={[styles.bottomBar, { backgroundColor: theme.surface, borderTopColor: theme.border }]}>
-        <FlatList
-          horizontal
-          scrollEnabled={false}
-          data={visibleTabs}
-          renderItem={renderTabItem}
-          keyExtractor={(t) => t.key}
-          contentContainerStyle={styles.tabRow}
-        />
+        <View style={styles.bottomBarInner}>
+          <FlatList
+            horizontal
+            scrollEnabled={false}
+            data={visibleTabs}
+            renderItem={renderTabItem}
+            keyExtractor={(t) => t.key}
+            contentContainerStyle={styles.tabRow}
+          />
+        </View>
       </View>
     </SafeAreaView>
   );
@@ -215,20 +226,37 @@ const styles = StyleSheet.create({
     gap: SPACING.md,
   },
   loadingText: { fontSize: 15 },
-  appHeader: {
+  appHeaderWrap: {
+    borderBottomWidth: 1,
+  },
+  appHeaderInner: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
     paddingHorizontal: SPACING.lg,
     paddingVertical: SPACING.sm,
-    borderBottomWidth: 1,
     gap: SPACING.sm,
+    maxWidth: 760,
+    width: '100%',
+    alignSelf: 'center',
   },
-  appTitle: { fontSize: 17, fontWeight: '600' },
+  contentShell: {
+    flex: 1,
+    maxWidth: 760,
+    width: '100%',
+    alignSelf: 'center',
+  },
+  appTitle: { fontSize: 17, fontWeight: '700' },
+  appSubtitle: { fontSize: 12 },
   headerBadges: { flexDirection: 'row', gap: SPACING.xs, alignItems: 'center' },
   bottomBar: {
     borderTopWidth: 1,
     minHeight: 58,
+  },
+  bottomBarInner: {
+    maxWidth: 760,
+    width: '100%',
+    alignSelf: 'center',
   },
   tabRow: {
     flexGrow: 1,

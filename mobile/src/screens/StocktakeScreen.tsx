@@ -11,7 +11,7 @@ import {
 } from 'react-native';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { Ionicons } from '@expo/vector-icons';
-import { ChipOption, ChipRow, StatusPill } from '../components/CommonUI';
+import { ChipOption, ChipRow, SegmentedToggle, StatusPill } from '../components/CommonUI';
 import { api } from '../services/apiClient';
 import { useAuthStore } from '../store/authStore';
 import { RADIUS, SPACING, TOUCH_MIN } from '../theme/tokens';
@@ -26,11 +26,11 @@ import {
 
 type AuditViewMode = 'log' | 'by_product';
 type TimeframeKey = 'ALL' | '1' | '7' | '30';
-type ActionFilterKey = 'ALL' | 'STAFF_OUT' | 'OWNER_IN' | 'ALL_OUT' | 'OTHER';
+type ActionFilterKey = 'ALL' | 'STAFF_OUT' | 'OWNER_IN' | 'OTHER';
 
 const VIEW_MODE_OPTIONS: ChipOption[] = [
-  { key: 'log', label: 'Nhật ký chi tiết' },
-  { key: 'by_product', label: 'Tổng hợp từng mặt hàng' },
+  { key: 'log', label: 'Nhật ký sửa đổi' },
+  { key: 'by_product', label: 'Tổng hợp theo SP' },
 ];
 
 const TIMEFRAME_OPTIONS: ChipOption[] = [
@@ -41,41 +41,34 @@ const TIMEFRAME_OPTIONS: ChipOption[] = [
 ];
 
 const ACTION_FILTER_OPTIONS: ChipOption[] = [
-  { key: 'ALL', label: 'Tất cả sửa đổi' },
-  { key: 'STAFF_OUT', label: 'Nhân viên tiêu hao (-)' },
-  { key: 'OWNER_IN', label: 'Chủ đã nhập (+)' },
-  { key: 'ALL_OUT', label: 'Tất cả xuất/hỏng (-)' },
+  { key: 'ALL', label: 'Tất cả' },
+  { key: 'STAFF_OUT', label: 'NV tiêu hao (-)' },
+  { key: 'OWNER_IN', label: 'Chủ nhập (+)' },
   { key: 'OTHER', label: 'Hoàn tác / Khác' },
 ];
 
-function getAuditBadge(item: StockMovement): {
-  label: string;
-  tone: 'primary' | 'secondary' | 'warning' | 'danger';
-} {
+function getAuditLabel(item: StockMovement): string {
   switch (item.movement_type) {
     case 'IN_PURCHASE':
-      return { label: 'Chủ nhập thêm (+)', tone: 'primary' };
+      return 'Chủ nhập';
     case 'OUT_CONSUMPTION':
-      return {
-        label: item.user_role === 'STAFF' ? 'Nhân viên tiêu hao (-)' : 'Chủ xuất tiêu hao (-)',
-        tone: 'secondary',
-      };
+      return item.user_role === 'STAFF' ? 'NV tiêu hao' : 'Chủ xuất';
     case 'OUT_DAMAGE_EXPIRED':
-      return { label: 'Báo hỏng / Hủy (-)', tone: 'danger' };
+      return 'Báo hỏng';
     case 'REVERSAL':
-      return { label: 'Hoàn tác đính chính', tone: 'warning' };
+      return 'Hoàn tác';
     case 'PACK_BREAK':
-      return { label: 'Khui thùng / Xé lẻ', tone: 'secondary' };
+      return 'Khui thùng';
     case 'ADJUST_STOCKTAKE':
-      return { label: 'Cân bằng kiểm kê', tone: 'secondary' };
+      return 'Kiểm kê';
     default:
-      return { label: item.movement_type, tone: 'secondary' };
+      return item.movement_type;
   }
 }
 
 function getActorRoleLabel(role?: string | null): string {
   if (role === 'MANAGER') return 'Chủ kho';
-  if (role === 'STAFF') return 'Nhân viên';
+  if (role === 'STAFF') return 'NV';
   return 'Hệ thống';
 }
 
@@ -83,8 +76,7 @@ function isWithinReversalWindow(createdAt: string): boolean {
   const normalized = createdAt.endsWith('Z') ? createdAt : `${createdAt}Z`;
   const parsed = Date.parse(normalized);
   if (Number.isNaN(parsed)) return true;
-  const elapsedMinutes = (Date.now() - parsed) / 60000;
-  return elapsedMinutes <= 16;
+  return (Date.now() - parsed) / 60000 <= 16;
 }
 
 const ProductAuditCard = React.memo(
@@ -111,45 +103,36 @@ const ProductAuditCard = React.memo(
         ]}
       >
         <View style={styles.rowBetween}>
-          <View style={styles.flexOne}>
-            <Text style={[styles.itemName, { color: theme.text }]} numberOfLines={2}>
-              {item.name}
-            </Text>
-            <Text style={[styles.metaText, { color: theme.textMuted }]}>SKU: {item.sku}</Text>
-          </View>
-          <StatusPill text={`Tồn: ${formatNumber(item.current_stock)} ${item.unit}`} tone="secondary" />
+          <Text style={[styles.itemName, { color: theme.text }]} numberOfLines={2}>
+            {item.name}
+          </Text>
+          <StatusPill text={`Tồn ${formatNumber(item.current_stock)} ${item.unit}`} tone="secondary" />
         </View>
 
         <View style={styles.splitRow}>
           <View style={[styles.auditStatBox, { backgroundColor: theme.surfaceAlt, borderColor: theme.border }]}>
-            <Text style={[styles.auditStatLabel, { color: theme.textMuted }]}>Nhân viên tiêu hao</Text>
+            <Text style={[styles.auditStatLabel, { color: theme.textMuted }]}>NV tiêu hao</Text>
             <Text style={[styles.auditStatValue, { color: theme.danger }]}>
               -{formatNumber(item.staff_consumed_qty)} {item.unit}
             </Text>
             <Text style={[styles.metaText, { color: theme.textMuted }]}>
-              {item.staff_consumed_count} lần xuất
+              {item.staff_consumed_count} lượt
               {item.manager_consumed_qty > 0
-                ? ` · Chủ xuất: -${formatNumber(item.manager_consumed_qty)} ${item.unit}`
+                ? ` · Chủ xuất -${formatNumber(item.manager_consumed_qty)}`
                 : ''}
             </Text>
           </View>
 
           <View style={[styles.auditStatBox, { backgroundColor: theme.primarySoft, borderColor: theme.primary }]}>
-            <Text style={[styles.auditStatLabel, { color: theme.textMuted }]}>Chủ đã nhập thêm</Text>
+            <Text style={[styles.auditStatLabel, { color: theme.textMuted }]}>Chủ đã nhập</Text>
             <Text style={[styles.auditStatValue, { color: theme.primary }]}>
               +{formatNumber(item.owner_imported_qty)} {item.unit}
             </Text>
             <Text style={[styles.metaText, { color: theme.textMuted }]}>
-              {item.owner_imported_count} lần nhập
+              {item.owner_imported_count} lượt
             </Text>
           </View>
         </View>
-
-        <Text style={[styles.linkHint, { color: theme.primary }]}>
-          {item.last_modified_at
-            ? `Sửa gần nhất: ${formatShortDate(item.last_modified_at)} · Chạm để xem lịch sử →`
-            : 'Chạm để lọc nhật ký của mặt hàng này →'}
-        </Text>
       </Pressable>
     );
   },
@@ -166,7 +149,6 @@ const AuditMovementCard = React.memo(
     onReverse: (mv: StockMovement) => void;
   }) => {
     const theme = useTheme();
-    const badge = getAuditBadge(item);
     const isReversibleType =
       item.movement_type === 'OUT_CONSUMPTION' ||
       item.movement_type === 'OUT_DAMAGE_EXPIRED' ||
@@ -183,8 +165,13 @@ const AuditMovementCard = React.memo(
         : Number((item.balance_after - item.quantity_delta).toFixed(3));
     const isPositive = item.quantity_delta > 0;
     const deltaLabel = isPositive
-      ? `+${formatNumber(item.quantity_delta)}`
-      : formatNumber(item.quantity_delta);
+      ? `+${formatNumber(item.quantity_delta)} ${unit}`
+      : `${formatNumber(item.quantity_delta)} ${unit}`;
+    const pillTone: 'primary' | 'danger' | 'warning' = item.is_reversed
+      ? 'warning'
+      : isPositive
+        ? 'primary'
+        : 'danger';
 
     return (
       <View
@@ -198,62 +185,44 @@ const AuditMovementCard = React.memo(
       >
         <View style={styles.rowBetween}>
           <Text style={[styles.itemName, { color: theme.text }]} numberOfLines={2}>
-            {item.product_name || `Sản phẩm #${item.product_id}`}
+            {item.product_name || `SP #${item.product_id}`}
           </Text>
-          <StatusPill text={badge.label} tone={badge.tone} />
+          <StatusPill text={deltaLabel} tone={pillTone} />
         </View>
 
-        <View style={[styles.mathBox, { backgroundColor: theme.surfaceAlt, borderColor: theme.border }]}>
+        <View style={styles.rowBetween}>
           <Text style={[styles.mathLine, { color: theme.text }]}>
-            Trước: {formatNumber(beforeQty)} {unit}{'  →  '}
-            <Text style={{ color: isPositive ? theme.primary : theme.danger }}>
-              {deltaLabel} {unit}
-            </Text>
-            {'  →  '}Còn: {formatNumber(item.balance_after)} {unit}
+            Trước {formatNumber(beforeQty)} → Còn {formatNumber(item.balance_after)} {unit}
           </Text>
-          {item.unit_entered && item.unit_entered !== unit && item.quantity_entered ? (
-            <Text style={[styles.metaText, { color: theme.textMuted }]}>
-              (Đơn vị thao tác: {formatNumber(item.quantity_entered)} {item.unit_entered})
-            </Text>
+          <Text style={[styles.badgeText, { color: theme.textMuted }]}>{getAuditLabel(item)}</Text>
+        </View>
+
+        <View style={styles.rowBetween}>
+          <Text style={[styles.metaText, { color: theme.textMuted, flex: 1 }]}>
+            {getActorRoleLabel(item.user_role)}: {item.user_name || 'Hệ thống'} ·{' '}
+            {formatShortDate(item.occurred_at)}
+          </Text>
+          {canReverse ? (
+            <Pressable
+              onPress={() => onReverse(item)}
+              accessibilityRole="button"
+              accessibilityLabel={`Hoàn tác giao dịch ${item.id}`}
+              android_ripple={{ color: theme.ripple }}
+              style={({ pressed }) => [
+                styles.reverseBtn,
+                { backgroundColor: theme.warningSoft, opacity: pressed ? 0.75 : 1 },
+              ]}
+            >
+              <Ionicons name="arrow-undo-outline" size={16} color={theme.warning} />
+              <Text style={[styles.reverseBtnText, { color: theme.text }]}>Hoàn tác</Text>
+            </Pressable>
           ) : null}
         </View>
 
-        <View style={styles.actorRow}>
-          <Ionicons
-            name={item.user_role === 'MANAGER' ? 'shield-checkmark-outline' : 'person-outline'}
-            size={16}
-            color={item.user_role === 'MANAGER' ? theme.primary : theme.secondary}
-          />
-          <Text style={[styles.subText, { color: theme.textMuted, flex: 1 }]}>
-            {getActorRoleLabel(item.user_role)}: {item.user_name || 'Hệ thống'}
-            {item.user_username ? ` (@${item.user_username})` : ''} · {formatShortDate(item.occurred_at)}
-          </Text>
-        </View>
-
-        {item.note ? (
-          <Text style={[styles.noteText, { color: theme.textMuted }]}>Ghi chú: {item.note}</Text>
-        ) : null}
-
         {item.is_reversed ? (
-          <Text style={[styles.reversedLabel, { color: theme.warning }]}>
-            Đã hoàn tác đính chính (Không tính vào tổng tiêu hao / nhập hàng)
-          </Text>
-        ) : canReverse ? (
-          <Pressable
-            onPress={() => onReverse(item)}
-            accessibilityRole="button"
-            accessibilityLabel={`Đính chính hoàn tác giao dịch ${item.id}`}
-            android_ripple={{ color: theme.ripple }}
-            style={({ pressed }) => [
-              styles.reverseBtn,
-              { backgroundColor: theme.warningSoft, opacity: pressed ? 0.75 : 1 },
-            ]}
-          >
-            <Ionicons name="arrow-undo-outline" size={18} color={theme.warning} />
-            <Text style={[styles.reverseBtnText, { color: theme.text }]}>
-              {isManager ? 'Đính chính / Hoàn tác' : 'Đính chính (Hoàn tác 15p)'}
-            </Text>
-          </Pressable>
+          <Text style={[styles.reversedLabel, { color: theme.warning }]}>Đã hoàn tác</Text>
+        ) : item.note ? (
+          <Text style={[styles.metaText, { color: theme.textMuted }]}>{item.note}</Text>
         ) : null}
       </View>
     );
@@ -304,7 +273,7 @@ export function StocktakeScreen() {
 
   const productFilterChips = useMemo<ChipOption[]>(
     () => [
-      { key: 'ALL', label: 'Tất cả mặt hàng' },
+      { key: 'ALL', label: 'Tất cả SP' },
       ...products.map((p) => ({ key: String(p.id), label: p.name })),
     ],
     [products],
@@ -312,7 +281,7 @@ export function StocktakeScreen() {
 
   const filteredMovements = useMemo(() => {
     const raw = movementsQuery.data || [];
-    if (actionFilter === 'STAFF_OUT' || actionFilter === 'ALL_OUT') {
+    if (actionFilter === 'STAFF_OUT') {
       return raw.filter(
         (m) => m.movement_type === 'OUT_CONSUMPTION' || m.movement_type === 'OUT_DAMAGE_EXPIRED',
       );
@@ -347,12 +316,10 @@ export function StocktakeScreen() {
         try {
           await api.reverseMovement(mv.id, 'Đính chính thao tác nhập/xuất nhầm');
           await triggerSuccessHaptic();
-          setNotice(
-            `Đã hoàn tác giao dịch #${mv.id} (${mv.product_name || 'SP'}) bằng bút toán REVERSAL.`,
-          );
+          setNotice(`Đã hoàn tác giao dịch #${mv.id} (${mv.product_name || 'SP'}).`);
           refreshAll();
         } catch (err) {
-          setNotice(err instanceof Error ? err.message : 'Không thể hoàn tác giao dịch này.');
+          setNotice(err instanceof Error ? err.message : 'Không thể hoàn tác giao dịch.');
         }
       };
 
@@ -362,11 +329,11 @@ export function StocktakeScreen() {
       }
 
       Alert.alert(
-        'Xác nhận hoàn tác / đính chính',
-        `Tạo bút toán bù trừ hoàn lại ${formatNumber(Math.abs(mv.quantity_delta))} ${mv.product_unit || ''}?`,
+        'Xác nhận hoàn tác',
+        `Hoàn lại ${formatNumber(Math.abs(mv.quantity_delta))} ${mv.product_unit || ''}?`,
         [
           { text: 'Hủy', style: 'cancel' },
-          { text: 'Đính chính ngay', onPress: () => void runReverse() },
+          { text: 'Hoàn tác ngay', onPress: () => void runReverse() },
         ],
       );
     },
@@ -402,48 +369,43 @@ export function StocktakeScreen() {
       <View style={styles.headerSections}>
         <View style={styles.kpiRow}>
           <View style={[styles.kpiCard, { backgroundColor: theme.surface, borderColor: theme.danger }]}>
-            <Text style={[styles.kpiTitle, { color: theme.textMuted }]}>Nhân viên đã tiêu hao</Text>
+            <Text style={[styles.kpiTitle, { color: theme.textMuted }]}>NV tiêu hao</Text>
             <Text style={[styles.kpiVal, { color: theme.danger }]}>
               -{formatNumber(summary?.staff_consumed_total ?? 0)}
             </Text>
             <Text style={[styles.metaText, { color: theme.textMuted }]}>
-              {summary?.staff_consumed_events ?? 0} lượt xuất bởi Nhân viên
+              {summary?.staff_consumed_events ?? 0} lượt
               {(summary?.manager_consumed_total ?? 0) > 0
-                ? ` · Chủ xuất: -${formatNumber(summary?.manager_consumed_total ?? 0)}`
+                ? ` · Chủ xuất -${formatNumber(summary?.manager_consumed_total ?? 0)}`
                 : ''}
             </Text>
           </View>
 
           <View style={[styles.kpiCard, { backgroundColor: theme.surface, borderColor: theme.primary }]}>
-            <Text style={[styles.kpiTitle, { color: theme.textMuted }]}>Chủ shop đã nhập</Text>
+            <Text style={[styles.kpiTitle, { color: theme.textMuted }]}>Chủ đã nhập</Text>
             <Text style={[styles.kpiVal, { color: theme.primary }]}>
               +{formatNumber(summary?.owner_imported_total ?? 0)}
             </Text>
             <Text style={[styles.metaText, { color: theme.textMuted }]}>
-              {summary?.owner_imported_events ?? 0} lượt nhập kho
+              {summary?.owner_imported_events ?? 0} lượt
             </Text>
           </View>
         </View>
 
         {viewMode === 'log' ? (
           <View style={styles.filterBlock}>
-            <Text style={[styles.filterHeading, { color: theme.textMuted }]}>
-              Lọc theo loại biến động:
-            </Text>
             <ChipRow
               options={ACTION_FILTER_OPTIONS}
               selectedKey={actionFilter}
               onSelect={(k) => setActionFilter(k as ActionFilterKey)}
             />
-
-            <Text style={[styles.filterHeading, { color: theme.textMuted }]}>
-              Lọc theo mặt hàng:
-            </Text>
-            <ChipRow
-              options={productFilterChips}
-              selectedKey={selectedProductFilter}
-              onSelect={setSelectedProductFilter}
-            />
+            {products.length > 1 ? (
+              <ChipRow
+                options={productFilterChips}
+                selectedKey={selectedProductFilter}
+                onSelect={setSelectedProductFilter}
+              />
+            ) : null}
 
             {selectedProductSummary ? (
               <View
@@ -453,27 +415,17 @@ export function StocktakeScreen() {
                 ]}
               >
                 <Text style={[styles.itemName, { color: theme.text }]}>
-                  Đối soát: {selectedProductSummary.name}
+                  {selectedProductSummary.name}
                 </Text>
                 <Text style={[styles.subText, { color: theme.text }]}>
-                  Chủ đã nhập: +{formatNumber(selectedProductSummary.owner_imported_qty)}{' '}
-                  {selectedProductSummary.unit} · Nhân viên tiêu hao: -
-                  {formatNumber(selectedProductSummary.staff_consumed_qty)} {selectedProductSummary.unit}{' '}
-                  · Tồn hiện tại: {formatNumber(selectedProductSummary.current_stock)}{' '}
-                  {selectedProductSummary.unit}
+                  Nhập: +{formatNumber(selectedProductSummary.owner_imported_qty)} · NV tiêu: -
+                  {formatNumber(selectedProductSummary.staff_consumed_qty)} · Còn:{' '}
+                  {formatNumber(selectedProductSummary.current_stock)} {selectedProductSummary.unit}
                 </Text>
               </View>
             ) : null}
-
-            <Text style={[styles.sectionSub, { color: theme.textMuted }]}>
-              Nhật ký sửa đổi ({filteredMovements.length} bản ghi):
-            </Text>
           </View>
-        ) : (
-          <Text style={[styles.sectionSub, { color: theme.textMuted }]}>
-            Tổng hợp theo từng mặt hàng ({summary?.products.length ?? 0} SP):
-          </Text>
-        )}
+        ) : null}
       </View>
     ),
     [
@@ -481,20 +433,17 @@ export function StocktakeScreen() {
       summary,
       viewMode,
       actionFilter,
+      products.length,
       productFilterChips,
       selectedProductFilter,
       selectedProductSummary,
-      filteredMovements.length,
     ],
   );
 
   return (
     <View style={[styles.container, { backgroundColor: theme.bg }]}>
       <View style={[styles.topPanel, { backgroundColor: theme.surface, borderBottomColor: theme.border }]}>
-        <Text style={[styles.headerTitle, { color: theme.text }]}>
-          Kiểm kê & Lịch sử sửa đổi kho
-        </Text>
-        <ChipRow
+        <SegmentedToggle
           options={VIEW_MODE_OPTIONS}
           selectedKey={viewMode}
           onSelect={(k) => setViewMode(k as AuditViewMode)}
@@ -524,7 +473,7 @@ export function StocktakeScreen() {
           ListEmptyComponent={
             <View style={styles.emptyBox}>
               <Text style={[styles.subText, { color: theme.textMuted }]}>
-                Chưa có lịch sử sửa đổi khớp bộ lọc.
+                Chưa có lịch sử sửa đổi nào.
               </Text>
             </View>
           }
@@ -558,20 +507,18 @@ export function StocktakeScreen() {
 
 const styles = StyleSheet.create({
   container: { flex: 1 },
-  flexOne: { flex: 1 },
   topPanel: {
     padding: SPACING.md,
     borderBottomWidth: 1,
-    gap: SPACING.sm,
+    gap: SPACING.xs,
   },
-  headerTitle: { fontSize: 17, fontWeight: '600' },
   noticeText: { fontSize: 13, fontWeight: '500' },
   listContent: {
     padding: SPACING.lg,
     gap: SPACING.md,
   },
   headerSections: {
-    gap: SPACING.md,
+    gap: SPACING.sm,
     marginBottom: SPACING.xs,
   },
   kpiRow: {
@@ -583,20 +530,17 @@ const styles = StyleSheet.create({
     borderRadius: RADIUS.lg,
     borderWidth: 1,
     padding: SPACING.md,
-    gap: SPACING.xs,
+    gap: 2,
   },
   kpiTitle: { fontSize: 12, fontWeight: '600' },
   kpiVal: { fontSize: 22, fontWeight: '700' },
   filterBlock: { gap: SPACING.xs },
-  filterHeading: { fontSize: 12, fontWeight: '600', marginTop: SPACING.xs },
   selectedProductCard: {
     borderRadius: RADIUS.md,
     borderWidth: 1,
     padding: SPACING.md,
-    gap: SPACING.xs,
-    marginTop: SPACING.xs,
+    gap: 2,
   },
-  sectionSub: { fontSize: 13, fontWeight: '600', marginTop: SPACING.xs },
   card: {
     borderRadius: RADIUS.lg,
     borderWidth: 1,
@@ -610,8 +554,9 @@ const styles = StyleSheet.create({
     gap: SPACING.sm,
   },
   itemName: { fontSize: 15, fontWeight: '600', flex: 1 },
-  subText: { fontSize: 13, lineHeight: 19 },
-  metaText: { fontSize: 12, lineHeight: 17 },
+  subText: { fontSize: 13 },
+  metaText: { fontSize: 12 },
+  badgeText: { fontSize: 12, fontWeight: '600' },
   splitRow: {
     flexDirection: 'row',
     gap: SPACING.sm,
@@ -624,21 +569,8 @@ const styles = StyleSheet.create({
     gap: 2,
   },
   auditStatLabel: { fontSize: 11, fontWeight: '600' },
-  auditStatValue: { fontSize: 16, fontWeight: '700' },
-  linkHint: { fontSize: 12, fontWeight: '600' },
-  mathBox: {
-    borderRadius: RADIUS.md,
-    borderWidth: 1,
-    padding: SPACING.md,
-    gap: 2,
-  },
-  mathLine: { fontSize: 14, fontWeight: '600' },
-  actorRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: SPACING.xs,
-  },
-  noteText: { fontSize: 12, fontStyle: 'italic' },
+  auditStatValue: { fontSize: 15, fontWeight: '700' },
+  mathLine: { fontSize: 13, fontWeight: '600' },
   reversedLabel: { fontSize: 12, fontWeight: '600' },
   reverseBtn: {
     minHeight: TOUCH_MIN,
@@ -647,7 +579,6 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: SPACING.xs,
-    alignSelf: 'flex-start',
   },
   reverseBtnText: { fontSize: 13, fontWeight: '600' },
   emptyBox: { padding: SPACING.xl, alignItems: 'center' },

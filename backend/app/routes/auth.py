@@ -18,6 +18,7 @@ from app.schemas.api import (
     StoreOut,
     UserOut,
 )
+from app.seed import ensure_demo_store_seeded
 from app.services.templates import apply_starter_template
 
 router = APIRouter(prefix="/auth", tags=["Auth"])
@@ -52,13 +53,12 @@ def login(payload: LoginRequest, db: Annotated[Session, Depends(get_db)]) -> Aut
 
 @router.post("/demo-login", response_model=AuthResponse)
 def demo_login(payload: DemoLoginRequest, db: Annotated[Session, Depends(get_db)]) -> AuthResponse:
-    """Issue token for the seeded demo store so evaluators can test MANAGER vs STAFF in 1 tap."""
-    store = db.scalar(select(Store).where(Store.code == "MOC_BAKERY"))
-    if not store:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Chưa có dữ liệu demo.")
-    target_username = "manager" if payload.role == "MANAGER" else "staff"
+    """Issue token for the demo store, lazily seeding it only when Demo is requested."""
+    store = ensure_demo_store_seeded(db)
     user = db.scalar(
-        select(User).where(User.store_id == store.id, User.username == target_username)
+        select(User)
+        .where(User.store_id == store.id, User.role == payload.role, User.is_active.is_(True))
+        .order_by(User.id.asc())
     )
     if not user:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Không tìm thấy tài khoản demo.")
