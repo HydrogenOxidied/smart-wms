@@ -205,6 +205,9 @@ export const api = {
   createProduct: (payload: ProductCreateInput) =>
     requestJson<Product>('/products', { method: 'POST', body: JSON.stringify(payload) }),
 
+  deleteProduct: (productId: number) =>
+    requestJson<{ status: string; id: number }>(`/products/${productId}`, { method: 'DELETE' }),
+
   breakPack: (productId: number, packs_to_break: number, idempotency_key: string) =>
     requestJson<StockMovement>(`/products/${productId}/break-pack`, {
       method: 'POST',

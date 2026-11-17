@@ -476,3 +476,51 @@ def test_mam_tep_template_and_unlimited_staff_management(client_and_db):
         json={"username": "nv_sang", "secret": "SAMPLE_Staff123!"},
     )
     assert login_locked.status_code == 401
+
+    # Non-demo real store cannot call /store/apply-template (Demo-only)
+    tpl_forbidden = client.post(
+        "/api/v1/store/apply-template",
+        json={"template_key": "CAFE_BAKERY"},
+        headers=mgr_headers,
+    )
+    assert tpl_forbidden.status_code == 403
+
+    # Demo store MANAGER CAN apply template
+    demo_mgr_headers = _auth_headers(client, "MANAGER")
+    tpl_demo = client.post(
+        "/api/v1/store/apply-template",
+        json={"template_key": "MAM_TEP"},
+        headers=demo_mgr_headers,
+    )
+    assert tpl_demo.status_code == 200
+    assert tpl_demo.json()["created_products"] == 7
+
+    # STAFF cannot delete products (403); MANAGER deletes product and can reuse SKU/barcode
+    nv_chieu_login = client.post(
+        "/api/v1/auth/login",
+        json={"username": "nv_chieu", "secret": "SAMPLE_Staff123!"},
+    )
+    assert nv_chieu_login.status_code == 200
+    staff_headers = {"Authorization": f"Bearer {nv_chieu_login.json()['access_token']}"}
+
+    del_staff = client.delete(f"/api/v1/products/{thung_500['id']}", headers=staff_headers)
+    assert del_staff.status_code == 403
+
+    del_mgr = client.delete(f"/api/v1/products/{thung_500['id']}", headers=mgr_headers)
+    assert del_mgr.status_code == 200
+
+    remaining = client.get("/api/v1/products", headers=mgr_headers).json()
+    assert all(p["id"] != thung_500["id"] for p in remaining)
+
+    recreated = client.post(
+        "/api/v1/products",
+        json={
+            "name": "Thùng Mắm tép chưng thịt lô mới 500g",
+            "sku": thung_500["sku"],
+            "barcode": thung_500["barcode"],
+            "unit": "Thùng",
+            "current_stock": 8,
+        },
+        headers=mgr_headers,
+    )
+    assert recreated.status_code == 201

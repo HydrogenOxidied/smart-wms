@@ -64,7 +64,13 @@ def apply_template(
     manager: Annotated[User, Depends(require_manager)],
     db: Annotated[Session, Depends(get_db)],
 ) -> ImportSummaryOut:
-    """Add starter industry items into the current store."""
+    """Add starter industry items exclusively inside the seeded Demo workspace."""
+    store = db.get(Store, manager.store_id)
+    if not store or store.code != "MOC_BAKERY":
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Chức năng nạp bộ mẫu thử nghiệm chỉ bật trong tài khoản Demo.",
+        )
     return apply_starter_template(db, manager, payload.template_key)
 
 

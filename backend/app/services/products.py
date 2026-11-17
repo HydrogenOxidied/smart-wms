@@ -201,3 +201,22 @@ def update_product(db: Session, user: User, product_id: int, payload: ProductUpd
     db.commit()
     db.refresh(product)
     return product
+
+
+def delete_product(db: Session, manager: User, product_id: int) -> None:
+    """Soft-delete a product while freeing its SKU and barcode and preserving ledger audit."""
+    product = db.scalar(
+        select(Product).where(
+            Product.id == product_id,
+            Product.store_id == manager.store_id,
+            Product.is_active.is_(True),
+        )
+    )
+    if not product:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Không tìm thấy sản phẩm.")
+
+    product.is_active = False
+    product.is_pinned = False
+    product.barcode = None
+    product.sku = f"{product.sku[:48]}__DEL_{product.id}"
+    db.commit()

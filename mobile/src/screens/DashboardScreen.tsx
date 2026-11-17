@@ -271,6 +271,7 @@ export function DashboardScreen() {
   const pendingStocktakes = (stocktakesQuery.data || []).filter((s) => s.status !== 'APPROVED').length;
   const totalProducts = productsQuery.data?.length ?? overview?.total_skus ?? 0;
   const staffMembers = staffQuery.data || [];
+  const isDemoStore = store?.code === 'MOC_BAKERY';
 
   const sections = ['header', 'kpis', 'alerts', 'staff', 'tools', 'account'];
 
@@ -434,16 +435,11 @@ export function DashboardScreen() {
         return (
           <View style={[styles.card, { backgroundColor: theme.surface, borderColor: theme.border }]}>
             <Text style={[styles.sectionTitle, { color: theme.text }]}>
-              Nạp dữ liệu hàng loạt & Bộ mẫu nhanh
+              {isDemoStore
+                ? 'Nạp dữ liệu hàng loạt & Bộ mẫu Demo'
+                : 'Nhập dữ liệu hàng loạt (CSV)'}
             </Text>
             <View style={styles.btnStack}>
-              <ActionButton
-                label="+ Nạp mẫu Kho Shop Mắm Tép (Thùng & Hũ)"
-                icon="cube-outline"
-                variant="primary"
-                loading={importing}
-                onPress={() => void handleApplyTemplate('MAM_TEP')}
-              />
               <ActionButton
                 label="Import Sản phẩm từ CSV"
                 icon="document-attach-outline"
@@ -458,22 +454,33 @@ export function DashboardScreen() {
                 loading={importing}
                 onPress={() => void handleUploadCsv('history')}
               />
-              <View style={styles.splitRow}>
-                <ActionButton
-                  label="+ Mẫu Cafe/Bánh"
-                  variant="secondary"
-                  style={styles.flexOne}
-                  loading={importing}
-                  onPress={() => void handleApplyTemplate('CAFE_BAKERY')}
-                />
-                <ActionButton
-                  label="+ Mẫu Kim khí"
-                  variant="outline"
-                  style={styles.flexOne}
-                  loading={importing}
-                  onPress={() => void handleApplyTemplate('HARDWARE')}
-                />
-              </View>
+              {isDemoStore ? (
+                <View style={styles.btnStack}>
+                  <ActionButton
+                    label="+ Nạp mẫu Kho Shop Mắm Tép (Demo)"
+                    icon="cube-outline"
+                    variant="primary"
+                    loading={importing}
+                    onPress={() => void handleApplyTemplate('MAM_TEP')}
+                  />
+                  <View style={styles.splitRow}>
+                    <ActionButton
+                      label="+ Mẫu Cafe/Bánh"
+                      variant="secondary"
+                      style={styles.flexOne}
+                      loading={importing}
+                      onPress={() => void handleApplyTemplate('CAFE_BAKERY')}
+                    />
+                    <ActionButton
+                      label="+ Mẫu Kim khí"
+                      variant="outline"
+                      style={styles.flexOne}
+                      loading={importing}
+                      onPress={() => void handleApplyTemplate('HARDWARE')}
+                    />
+                  </View>
+                </View>
+              ) : null}
             </View>
           </View>
         );
@@ -488,7 +495,7 @@ export function DashboardScreen() {
             onSelect={(k) => setThemePref(k as ThemePreference)}
           />
           <ActionButton
-            label="Đăng xuất / Chuyển vai trò Demo"
+            label={isDemoStore ? 'Đăng xuất / Chuyển vai trò Demo' : 'Đăng xuất tài khoản'}
             icon="log-out-outline"
             variant="danger"
             onPress={() => void logout()}
@@ -500,6 +507,7 @@ export function DashboardScreen() {
       theme,
       store,
       user,
+      isDemoStore,
       pending.length,
       isSyncing,
       flushQueue,

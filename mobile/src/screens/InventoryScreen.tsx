@@ -186,7 +186,9 @@ const LedgerRow = React.memo(({ item }: { item: StockMovement }) => {
 export function InventoryScreen() {
   const theme = useTheme();
   const queryClient = useQueryClient();
+  const user = useAuthStore((s) => s.user);
   const store = useAuthStore((s) => s.store);
+  const isManager = user?.role === 'MANAGER';
   const enqueueMovement = useOfflineQueueStore((s) => s.enqueueMovement);
 
   const [searchText, setSearchText] = useState('');
@@ -194,6 +196,8 @@ export function InventoryScreen() {
   const [scannerOpen, setScannerOpen] = useState(false);
   const [quickAddOpen, setQuickAddOpen] = useState(false);
   const [selectedProduct, setSelectedProduct] = useState<Product | null>(null);
+  const [confirmDelete, setConfirmDelete] = useState(false);
+  const [deleting, setDeleting] = useState(false);
   const [bannerMsg, setBannerMsg] = useState<string | null>(null);
 
   const productsQuery = useQuery({
@@ -277,6 +281,7 @@ export function InventoryScreen() {
         (p) => p.barcode === code || p.sku.toUpperCase() === code.toUpperCase(),
       );
       if (found) {
+        setConfirmDelete(false);
         setSelectedProduct(found);
       } else {
         setBannerMsg(`Không tìm thấy mã "${code}". Bấm "+ Thêm nhanh" để tạo mới.`);
@@ -285,12 +290,35 @@ export function InventoryScreen() {
     [productsQuery.data],
   );
 
+  const handleDeleteProduct = useCallback(async () => {
+    if (!selectedProduct) return;
+    setDeleting(true);
+    try {
+      await api.deleteProduct(selectedProduct.id);
+      await triggerSuccessHaptic();
+      const deletedName = selectedProduct.name;
+      setConfirmDelete(false);
+      setSelectedProduct(null);
+      setBannerMsg(`Đã xóa mặt hàng "${deletedName}" khỏi danh sách quản lý kho.`);
+      void queryClient.invalidateQueries({ queryKey: ['products'] });
+      void queryClient.invalidateQueries({ queryKey: ['forecast-overview'] });
+      void queryClient.invalidateQueries({ queryKey: ['stocktakes'] });
+    } catch (err) {
+      setBannerMsg(err instanceof Error ? err.message : 'Không thể xóa mặt hàng.');
+    } finally {
+      setDeleting(false);
+    }
+  }, [selectedProduct, queryClient]);
+
   const renderProduct = useCallback(
     ({ item }: { item: Product }) => (
       <ProductCard
         item={item}
         liteMode={Boolean(store?.lite_mode)}
-        onSelect={setSelectedProduct}
+        onSelect={(p) => {
+          setConfirmDelete(false);
+          setSelectedProduct(p);
+        }}
         onQuickDeduct={(p) => void handleQuickDeduct(p)}
         onBreakPack={(p) => void handleBreakPack(p)}
       />
@@ -394,7 +422,10 @@ export function InventoryScreen() {
       <Modal
         visible={Boolean(selectedProduct)}
         animationType="slide"
-        onRequestClose={() => setSelectedProduct(null)}
+        onRequestClose={() => {
+          setConfirmDelete(false);
+          setSelectedProduct(null);
+        }}
       >
         <SafeAreaView style={[styles.container, { backgroundColor: theme.bg }]}>
           <View style={[styles.modalHeader, { backgroundColor: theme.surface, borderBottomColor: theme.border }]}>
@@ -407,7 +438,10 @@ export function InventoryScreen() {
               </Text>
             </View>
             <Pressable
-              onPress={() => setSelectedProduct(null)}
+              onPress={() => {
+                setConfirmDelete(false);
+                setSelectedProduct(null);
+              }}
               accessibilityRole="button"
               accessibilityLabel="Đóng chi tiết sản phẩm"
               android_ripple={{ color: theme.ripple }}
@@ -438,9 +472,47 @@ export function InventoryScreen() {
                   icon="remove-circle-outline"
                   onPress={() => {
                     void handleQuickDeduct(selectedProduct);
+                    setConfirmDelete(false);
                     setSelectedProduct(null);
                   }}
                 />
+                {isManager ? (
+                  confirmDelete ? (
+                    <View
+                      style={[
+                        styles.confirmBox,
+                        { backgroundColor: theme.dangerSoft, borderColor: theme.danger },
+                      ]}
+                    >
+                      <Text style={[styles.subInfo, { color: theme.text }]}>
+                        Xóa "{selectedProduct.name}" khỏi danh sách kho & dự báo? (Lịch sử sổ cái cũ vẫn được giữ để đối soát).
+                      </Text>
+                      <View style={styles.confirmRow}>
+                        <ActionButton
+                          label="Hủy"
+                          variant="outline"
+                          style={styles.flexOne}
+                          onPress={() => setConfirmDelete(false)}
+                        />
+                        <ActionButton
+                          label="Xác nhận xóa"
+                          icon="trash-outline"
+                          variant="danger"
+                          style={styles.flexOne}
+                          loading={deleting}
+                          onPress={() => void handleDeleteProduct()}
+                        />
+                      </View>
+                    </View>
+                  ) : (
+                    <ActionButton
+                      label="Xóa mặt hàng khỏi kho"
+                      icon="trash-outline"
+                      variant="danger"
+                      onPress={() => setConfirmDelete(true)}
+                    />
+                  )
+                ) : null}
               </View>
 
               <Text style={[styles.ledgerHeader, { color: theme.text }]}>
@@ -575,4 +647,14 @@ const styles = StyleSheet.create({
   },
   ledgerType: { fontSize: 13, fontWeight: '600' },
   ledgerDelta: { fontSize: 15, fontWeight: '700' },
+  confirmBox: {
+    borderRadius: RADIUS.md,
+    borderWidth: 1,
+    padding: SPACING.md,
+    gap: SPACING.sm,
+  },
+  confirmRow: {
+    flexDirection: 'row',
+    gap: SPACING.sm,
+  },
 });

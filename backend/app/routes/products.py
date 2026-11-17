@@ -6,7 +6,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.core.database import get_db
-from app.core.security import get_current_user
+from app.core.security import get_current_user, require_manager
 from app.models.entities import Product, User
 from app.schemas.api import (
     DuplicateWarningItem,
@@ -19,6 +19,7 @@ from app.schemas.api import (
 from app.services.ledger import break_pack, serialize_movement
 from app.services.products import (
     create_product,
+    delete_product,
     find_similar_products,
     normalize_vi_text,
     update_product,
@@ -150,3 +151,14 @@ def break_product_pack(
     """Open sealed packs into loose units and record audit entry."""
     mv = break_pack(db, current_user, product_id, payload)
     return serialize_movement(db, mv)
+
+
+@router.delete("/{product_id}", status_code=status.HTTP_200_OK)
+def remove_product(
+    product_id: int,
+    manager: Annotated[User, Depends(require_manager)],
+    db: Annotated[Session, Depends(get_db)],
+) -> dict[str, int | str]:
+    """Manager removes a discontinued product from active catalog while preserving ledger history."""
+    delete_product(db, manager, product_id)
+    return {"status": "deleted", "id": product_id}
