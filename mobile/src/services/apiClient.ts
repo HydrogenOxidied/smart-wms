@@ -171,6 +171,11 @@ export const api = {
 
   getMe: () => requestJson<AuthResponse>('/auth/me'),
 
+  getStore: () => requestJson<Store>('/store'),
+
+  getRemoteAccess: () =>
+    requestJson<{ active: boolean; public_url: string | null }>('/store/remote-access'),
+
   updateStore: (payload: { lite_mode?: boolean; allow_negative_stock?: boolean; name?: string }) =>
     requestJson<Store>('/store', { method: 'PATCH', body: JSON.stringify(payload) }),
 

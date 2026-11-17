@@ -3,7 +3,21 @@ title Dung PocketWMS Background Server
 powershell.exe -NoProfile -ExecutionPolicy Bypass -Command ^
   "$root = '%~dp0'.TrimEnd('\'); " ^
   "$pidFile = Join-Path $root 'backend\logs\uvicorn.pid'; " ^
+  "$cfPidFile = Join-Path $root 'backend\logs\cloudflared.pid'; " ^
+  "$cfUrlFile = Join-Path $root 'backend\logs\public_url.txt'; " ^
   "$stopped = $false; " ^
+  "if (Test-Path $cfPidFile) { " ^
+  "  $cfPid = 0; " ^
+  "  if ([int]::TryParse((Get-Content $cfPidFile -Raw).Trim(), [ref]$cfPid)) { " ^
+  "    if (Get-Process -Id $cfPid -ErrorAction SilentlyContinue) { " ^
+  "      Stop-Process -Id $cfPid -Force; " ^
+  "      Write-Host ('[PocketWMS] Da dung Cloudflare Tunnel PID=' + $cfPid); " ^
+  "      $stopped = $true; " ^
+  "    } " ^
+  "  } " ^
+  "  Remove-Item $cfPidFile -Force -ErrorAction SilentlyContinue; " ^
+  "} " ^
+  "Remove-Item $cfUrlFile -Force -ErrorAction SilentlyContinue; " ^
   "if (Test-Path $pidFile) { " ^
   "  $pidVal = [int](Get-Content $pidFile -Raw).Trim(); " ^
   "  if (Get-Process -Id $pidVal -ErrorAction SilentlyContinue) { " ^

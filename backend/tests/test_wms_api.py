@@ -61,13 +61,19 @@ def test_rbac_and_store_registration(client_and_db):
     staff_headers = _auth_headers(client, "STAFF")
     mgr_headers = _auth_headers(client, "MANAGER")
 
-    # STAFF cannot modify store settings or apply templates
+    # STAFF cannot modify store settings, apply templates, or view manager remote-access link
     res_forbidden = client.post(
         "/api/v1/store/apply-template",
         json={"template_key": "MINI_MART"},
         headers=staff_headers,
     )
     assert res_forbidden.status_code == 403
+    assert client.get("/api/v1/store/remote-access", headers=staff_headers).status_code == 403
+
+    remote_res = client.get("/api/v1/store/remote-access", headers=mgr_headers)
+    assert remote_res.status_code == 200
+    assert "active" in remote_res.json()
+    assert "public_url" in remote_res.json()
 
     # MANAGER can toggle Lite Mode <-> Warehouse Pro Mode
     res_toggle = client.patch("/api/v1/store", json={"lite_mode": False}, headers=mgr_headers)

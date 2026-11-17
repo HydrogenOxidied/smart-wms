@@ -2,8 +2,10 @@ import React, { useCallback, useState } from 'react';
 import {
   FlatList,
   Modal,
+  Platform,
   Pressable,
   RefreshControl,
+  Share,
   StyleSheet,
   Switch,
   Text,
@@ -240,12 +242,39 @@ export function DashboardScreen() {
     queryFn: api.listStaff,
   });
 
+  const remoteAccessQuery = useQuery({
+    queryKey: ['remote-access'],
+    queryFn: api.getRemoteAccess,
+  });
+
   const handleRefresh = useCallback(() => {
     void queryClient.invalidateQueries({ queryKey: ['forecast-overview'] });
     void queryClient.invalidateQueries({ queryKey: ['movements-summary'] });
     void queryClient.invalidateQueries({ queryKey: ['products'] });
     void queryClient.invalidateQueries({ queryKey: ['store-staff'] });
+    void queryClient.invalidateQueries({ queryKey: ['remote-access'] });
   }, [queryClient]);
+
+  const handleShareRemoteUrl = useCallback(async (url: string) => {
+    try {
+      if (Platform.OS === 'web') {
+        if (typeof navigator !== 'undefined' && navigator.clipboard?.writeText) {
+          await navigator.clipboard.writeText(url);
+          await triggerSuccessHaptic();
+          setNotice(`Đã sao chép link 4G: ${url}`);
+          return;
+        }
+        setNotice(`Link truy cập 4G: ${url}`);
+        return;
+      }
+      await Share.share({
+        title: 'Link truy cập PocketWMS từ xa',
+        message: `Mở kho từ 4G / Wi-Fi khác: ${url}`,
+      });
+    } catch {
+      setNotice(`Link truy cập 4G: ${url}`);
+    }
+  }, []);
 
   const handleToggleLiteMode = useCallback(
     async (value: boolean) => {
@@ -584,9 +613,33 @@ export function DashboardScreen() {
         );
       }
 
+      const publicRemoteUrl = remoteAccessQuery.data?.public_url;
+
       return (
         <View style={[styles.card, { backgroundColor: theme.surface, borderColor: theme.border }]}>
           <Text style={[styles.sectionTitle, { color: theme.text }]}>Cài đặt & Dữ liệu</Text>
+
+          {publicRemoteUrl ? (
+            <View
+              style={[
+                styles.remoteBox,
+                { backgroundColor: theme.primarySoft, borderColor: theme.primary },
+              ]}
+            >
+              <Text style={[styles.modeTitle, { color: theme.text }]}>
+                Link truy cập 4G / Khác Wi-Fi
+              </Text>
+              <Text selectable style={[styles.remoteUrlText, { color: theme.primary }]}>
+                {publicRemoteUrl}
+              </Text>
+              <ActionButton
+                label="Chia sẻ / Sao chép link 4G"
+                icon="share-outline"
+                variant="secondary"
+                onPress={() => void handleShareRemoteUrl(publicRemoteUrl)}
+              />
+            </View>
+          ) : null}
 
           <View style={[styles.modeSwitchRow, { backgroundColor: theme.surfaceAlt }]}>
             <Text style={[styles.modeTitle, { color: theme.text, flex: 1 }]}>
@@ -679,6 +732,8 @@ export function DashboardScreen() {
       setActiveTab,
       themePref,
       setThemePref,
+      remoteAccessQuery.data?.public_url,
+      handleShareRemoteUrl,
       logout,
     ],
   );
@@ -1073,5 +1128,15 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     paddingHorizontal: SPACING.md,
     fontSize: 15,
+  },
+  remoteBox: {
+    borderRadius: RADIUS.md,
+    borderWidth: 1,
+    padding: SPACING.md,
+    gap: SPACING.sm,
+  },
+  remoteUrlText: {
+    fontSize: 13,
+    fontWeight: '700',
   },
 });
