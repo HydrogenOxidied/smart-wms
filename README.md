@@ -28,17 +28,15 @@
 
 ---
 
-## 2. Chạy thử & Kịch bản Demo Bảo vệ Đồ án
+## 2. Chạy thử & Vận hành trên Windows
 
-### Khởi chạy nhanh trên Windows
-1. Chạy `start-backend.bat` (API chạy ở `http://0.0.0.0:8000`, tự động nạp dữ liệu mẫu **65 ngày** cho cửa hàng *"Tiệm Bánh & Cafe Mộc"*).
-2. Chạy `start-mobile.bat` (tự động nhận diện IP LAN của máy tính để điện thoại thật dùng **Expo Go** quét QR kết nối được ngay).
+### Bộ khởi động gọn (4 file tại thư mục gốc)
+- **`start-wms.bat`**: Bấm đúp để khởi động ngầm Backend (cổng `8000`) + Cloudflare Tunnel truy cập **4G / khác Wi-Fi**, tự copy link `https://...trycloudflare.com` vào clipboard (đóng cửa sổ xong vẫn chạy ngầm).
+- **`status-wms.bat`**: Kiểm tra trạng thái Backend/Tunnel, xem RAM, IP LAN và lấy lại (tự copy) link 4G đang chạy.
+- **`stop-wms.bat`**: Dừng cả Backend và Cloudflare Tunnel.
+- **`install-autostart.bat`**: Cài đặt tự khởi động ngầm (`scripts\start-hidden.vbs`) cùng Windows (chạy 1 lần duy nhất).
 
-### Chạy ngầm 24/7 không hiện cửa sổ CMD (Dành cho Laptop Server `i3-530` / Production)
-- **Chạy ẩn hoàn toàn (`Hide CMD`):** Bấm đúp vào `start-backend-hidden.vbs` (gọi ngầm `start-backend-hidden.ps1` không bật `--reload`, ghi log vào `backend/logs/`).
-- **Kiểm tra trạng thái & RAM / IP LAN:** Chạy `status-backend.bat` (xem URL API và bản Web/PWA tại `http://<LAN_IP>:8000/web`).
-- **Tắt server chạy ngầm:** Chạy `stop-backend-hidden.bat`.
-- **Tự bật ẩn khi mở Windows:** Chạy `install-autostart-hidden.bat` 1 lần duy nhất để cài shortcut vào thư mục `Startup`.
+*(Để phát triển frontend Expo Metro cục bộ, chạy `npx expo start` trong thư mục `mobile/`.)*
 
 ### Bộ mẫu Shop Mắm Tép (`MAM_TEP`) & Đa tài khoản Nhân viên
 - Chọn mẫu **Shop Mắm Tép** khi tạo cửa hàng mới hoặc bấm **`+ Nạp mẫu Kho Shop Mắm Tép (Thùng & Hũ)`** trong tab **Tổng quan** (bao gồm **Thùng Mắm tép chưng thịt**, **Thùng Mắm tép Ba Làng**, chế độ xé lẻ **Thùng → Hũ/Chai**, và vật tư màng seal/xốp nổ).
