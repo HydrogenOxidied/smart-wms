@@ -31,9 +31,9 @@
 ## 2. Chạy thử & Vận hành trên Windows
 
 ### Khởi động & Quản lý chỉ bằng 1 file duy nhất (`start-wms.bat`)
-- **`start-wms.bat`**: Bấm đúp để tự động bật ngầm Backend (cổng `8000`) + Cloudflare Tunnel truy cập **4G / khác Wi-Fi**, tự copy link `https://...trycloudflare.com` vào clipboard, và hiển thị menu thao tác nhanh ngay trong 1 cửa sổ:
+- **`start-wms.bat`**: Bấm đúp để tự động bật ngầm Backend (cổng `8000`) + Cloudflare Tunnel truy cập **4G / khác Wi-Fi**, tự copy link `https://...trycloudflare.com` vào clipboard, **hiển thị sẵn mã QR độ tương phản cao** ngay trong cửa sổ console để camera điện thoại / Zalo quét kết nối tức thì, và cung cấp menu thao tác nhanh:
   - **`[Enter]`**: Đóng cửa sổ (Backend + Tunnel 4G tiếp tục chạy ngầm).
-  - **`[1]`**: Bật lại / Cấp mới link 4G.
+  - **`[1]`**: Bật Server / Cấp mới link & mã QR 4G.
   - **`[2]`**: Tắt toàn bộ Backend & Tunnel 4G.
   - **`[3]`**: Bật / Tắt tự khởi động ngầm cùng Windows (qua `scripts\start-hidden.vbs`).
 - Hỗ trợ chạy nhanh qua dòng lệnh: `start-wms.bat status`, `start-wms.bat stop`, `start-wms.bat restart-tunnel`, `start-wms.bat install-autostart`.

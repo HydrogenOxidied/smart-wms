@@ -11,6 +11,7 @@ $ScriptsDir = Split-Path -Parent $MyInvocation.MyCommand.Path
 $RootDir = Split-Path -Parent $ScriptsDir
 $BackendDir = Join-Path $RootDir 'backend'
 $PythonExe = Join-Path $BackendDir '.venv\Scripts\python.exe'
+$QrScript = Join-Path $ScriptsDir 'qr_matrix.py'
 $LogsDir = Join-Path $BackendDir 'logs'
 $UvicornPidFile = Join-Path $LogsDir 'uvicorn.pid'
 $BackendStdout = Join-Path $LogsDir 'backend.stdout.log'
@@ -334,6 +335,41 @@ function Invoke-ToggleAutostart {
     }
 }
 
+function Invoke-PrintQrCode {
+    param(
+        [string]$Url,
+        [string]$Caption = 'QUET MA QR TREN DIEN THOAI:'
+    )
+    if ((-not $Url) -or (-not (Test-Path $PythonExe)) -or (-not (Test-Path $QrScript))) {
+        return
+    }
+    $digitLines = & $PythonExe $QrScript $Url 2>$null
+    if ((-not $digitLines) -or ($LASTEXITCODE -ne 0)) {
+        return
+    }
+    $upperHalf = [char]0x2580
+    $lowerHalf = [char]0x2584
+    $fullBlock = [char]0x2588
+    Write-Host ''
+    Write-Host "  $Caption" -ForegroundColor Cyan
+    foreach ($dLine in $digitLines) {
+        $trimmed = ([string]$dLine).Trim()
+        if (-not $trimmed) { continue }
+        $sb = New-Object System.Text.StringBuilder
+        foreach ($ch in $trimmed.ToCharArray()) {
+            switch ($ch) {
+                '0' { [void]$sb.Append(' ') }
+                '1' { [void]$sb.Append($upperHalf) }
+                '2' { [void]$sb.Append($lowerHalf) }
+                '3' { [void]$sb.Append($fullBlock) }
+            }
+        }
+        Write-Host -NoNewline '  '
+        Write-Host ($sb.ToString()) -ForegroundColor Black -BackgroundColor White
+    }
+    Write-Host ''
+}
+
 function Invoke-ShowStatus {
     $lanIp = Get-LanIp
     $localOnline = Test-LocalHealth
@@ -354,7 +390,9 @@ function Invoke-ShowStatus {
 
     $cfProc = Get-ActiveCloudflaredProc
     $pubUrl = Read-TextTrimmed -Path $PublicUrlFile
+    $tunnelOnline = $false
     if ($cfProc -and $pubUrl -and ($pubUrl -match '^https://[a-zA-Z0-9-]+\.trycloudflare\.com$')) {
+        $tunnelOnline = $true
         Write-Host "TUNNEL 4G   : ONLINE (PID=$($cfProc.Id))" -ForegroundColor Green
         Write-Host "Link 4G/Net : $pubUrl (Da COPY)" -ForegroundColor Cyan
         Write-Host "API 4G/Net  : $pubUrl/api/v1" -ForegroundColor Cyan
@@ -372,6 +410,12 @@ function Invoke-ShowStatus {
         Write-Host 'AUTOSTART   : DANG TAT' -ForegroundColor Yellow
     }
     Write-Host "Thu muc Log : $LogsDir"
+
+    if ($tunnelOnline) {
+        Invoke-PrintQrCode -Url $pubUrl -Caption 'QUET MA QR DE MO APP QUA 4G / WI-FI BAT KY:'
+    } elseif ($localOnline) {
+        Invoke-PrintQrCode -Url "http://${lanIp}:8000/web" -Caption 'QUET MA QR DE MO APP CUNG WI-FI (LAN):'
+    }
 }
 
 function Invoke-PrintStartBanner {
@@ -389,6 +433,11 @@ function Invoke-PrintStartBanner {
     }
     Write-Host "  Link cung Wi-Fi (LAN)         : http://${LanIp}:8000/web" -ForegroundColor White
     Write-Host '==========================================================================' -ForegroundColor Green
+    if ($PublicUrl) {
+        Invoke-PrintQrCode -Url $PublicUrl -Caption 'QUET MA QR DE MO APP QUA 4G / WI-FI BAT KY:'
+    } else {
+        Invoke-PrintQrCode -Url "http://${LanIp}:8000/web" -Caption 'QUET MA QR DE MO APP CUNG WI-FI (LAN):'
+    }
 }
 
 function Invoke-Launcher {
@@ -405,7 +454,7 @@ function Invoke-Launcher {
             Invoke-ShowStatus
             Write-Host '--------------------------------------------------------------------------' -ForegroundColor DarkGray
             Write-Host '  [Enter] Dong cua so (Backend + 4G van chay ngam)'
-            Write-Host '  [1]     Bat lai / Cap moi link 4G'
+            Write-Host '  [1]     Bat Server / Cap moi link & ma QR 4G'
             Write-Host '  [2]     Tat toan bo Backend & Tunnel 4G'
             Write-Host '  [3]     Bat / Tat Tu khoi dong cung Windows'
             Write-Host '--------------------------------------------------------------------------' -ForegroundColor DarkGray
