@@ -313,6 +313,7 @@ const styles = StyleSheet.create({
   },
   input: {
     flex: 1,
+    minWidth: 0,
     minHeight: TOUCH_MIN,
     borderRadius: RADIUS.md,
     borderWidth: 1,

@@ -548,6 +548,7 @@ const styles = StyleSheet.create({
   cardTitle: { fontSize: 15, fontWeight: '600', flex: 1 },
   fieldLabel: { fontSize: 13, fontWeight: '500', marginTop: SPACING.xs },
   input: {
+    minWidth: 0,
     minHeight: TOUCH_MIN,
     borderRadius: RADIUS.md,
     borderWidth: 1,
@@ -556,7 +557,7 @@ const styles = StyleSheet.create({
   },
   subBox: { marginTop: SPACING.xs, gap: SPACING.xs },
   splitRow: { flexDirection: 'row', gap: SPACING.sm, alignItems: 'center' },
-  halfInput: { flex: 1 },
+  halfInput: { flex: 1, minWidth: 0 },
   toggleAdvBtn: {
     minHeight: TOUCH_MIN,
     marginTop: SPACING.sm,

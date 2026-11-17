@@ -545,6 +545,7 @@ const styles = StyleSheet.create({
   },
   searchBox: {
     flex: 1,
+    minWidth: 0,
     minHeight: TOUCH_MIN,
     borderRadius: RADIUS.md,
     borderWidth: 1,
@@ -555,6 +556,7 @@ const styles = StyleSheet.create({
   },
   searchInput: {
     flex: 1,
+    minWidth: 0,
     minHeight: TOUCH_MIN,
     fontSize: 15,
   },
@@ -564,6 +566,7 @@ const styles = StyleSheet.create({
     borderRadius: RADIUS.md,
     justifyContent: 'center',
     alignItems: 'center',
+    flexShrink: 0,
   },
   bannerText: { fontSize: 13, fontWeight: '500' },
   listContent: {

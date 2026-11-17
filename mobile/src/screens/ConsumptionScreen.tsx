@@ -572,6 +572,7 @@ export function ConsumptionScreen() {
               value={qtyText}
               onChangeText={setQtyText}
               keyboardType="numeric"
+              inputMode="decimal"
               selectTextOnFocus
               accessibilityLabel="Ô điền số lượng"
               placeholder="0"
@@ -917,14 +918,18 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     padding: SPACING.lg,
     gap: SPACING.md,
+    width: '100%',
+    overflow: 'hidden',
   },
   searchRow: {
     flexDirection: 'row',
     gap: SPACING.sm,
     alignItems: 'center',
+    width: '100%',
   },
   searchBox: {
     flex: 1,
+    minWidth: 0,
     minHeight: TOUCH_MIN,
     borderRadius: RADIUS.md,
     borderWidth: 1,
@@ -935,6 +940,7 @@ const styles = StyleSheet.create({
   },
   searchInput: {
     flex: 1,
+    minWidth: 0,
     minHeight: TOUCH_MIN,
     fontSize: 15,
   },
@@ -944,6 +950,7 @@ const styles = StyleSheet.create({
     borderRadius: RADIUS.md,
     justifyContent: 'center',
     alignItems: 'center',
+    flexShrink: 0,
   },
   shiftCard: {
     borderRadius: RADIUS.lg,
@@ -965,6 +972,8 @@ const styles = StyleSheet.create({
   subText: { fontSize: 13, lineHeight: 18 },
   presetRow: { flexDirection: 'row', gap: SPACING.sm },
   input: {
+    width: '100%',
+    minWidth: 0,
     minHeight: TOUCH_MIN,
     borderRadius: RADIUS.md,
     borderWidth: 1,
@@ -994,6 +1003,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: SPACING.sm,
+    width: '100%',
   },
   stepperBtn: {
     minWidth: TOUCH_MIN,
@@ -1002,9 +1012,11 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     justifyContent: 'center',
     alignItems: 'center',
+    flexShrink: 0,
   },
   numberInput: {
     flex: 1,
+    minWidth: 0,
     minHeight: TOUCH_MIN,
     borderRadius: RADIUS.md,
     borderWidth: 2,
