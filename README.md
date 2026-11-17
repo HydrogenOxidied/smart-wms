@@ -38,7 +38,7 @@
   - **`[3]`**: Bật / Tắt tự khởi động ngầm cùng Windows (qua `scripts\start-hidden.vbs`).
 - Hỗ trợ chạy nhanh qua dòng lệnh: `start-wms.bat status`, `start-wms.bat stop`, `start-wms.bat restart-tunnel`, `start-wms.bat install-autostart`.
 
-*(Để phát triển frontend Expo Metro cục bộ, chạy `npx expo start` trong thư mục `mobile/`.)*
+*(Để phát triển frontend Expo Metro cục bộ, chạy `npx expo start` trong thư mục `mobile/`. Để chạy kiểm thử E2E Playwright trên trình duyệt, chạy `npm test` trong thư mục `e2e/`.)*
 
 ### Bộ mẫu Shop Mắm Tép (`MAM_TEP`) & Đa tài khoản Nhân viên
 - Chọn mẫu **Shop Mắm Tép** khi tạo cửa hàng mới hoặc bấm **`+ Nạp mẫu Kho Shop Mắm Tép (Thùng & Hũ)`** trong tab **Tổng quan** (bao gồm **Thùng Mắm tép chưng thịt**, **Thùng Mắm tép Ba Làng**, chế độ xé lẻ **Thùng → Hũ/Chai**, và vật tư màng seal/xốp nổ).

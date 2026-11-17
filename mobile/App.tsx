@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo } from 'react';
+import React, { useEffect, useMemo, useRef } from 'react';
 import {
   ActivityIndicator,
   BackHandler,
@@ -91,14 +91,22 @@ function RootShell() {
   const theme = useTheme();
   const { isHydrated, user, store, hydrate } = useAuthStore();
   const { activeTab, setActiveTab } = useUiStore();
+  const prevSessionRef = useRef<string | null>(null);
 
   useEffect(() => {
     void hydrate();
   }, [hydrate]);
 
   useEffect(() => {
-    queryClient.clear();
-  }, [user?.id, store?.id]);
+    const currentKey = user && store ? `${user.id}:${store.id}` : null;
+    if (!currentKey) {
+      queryClient.clear();
+    } else if (prevSessionRef.current && prevSessionRef.current !== currentKey) {
+      queryClient.clear();
+      void queryClient.invalidateQueries();
+    }
+    prevSessionRef.current = currentKey;
+  }, [user, store]);
 
   useEffect(() => {
     if (!user) return;

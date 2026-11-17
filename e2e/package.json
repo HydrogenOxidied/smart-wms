@@ -1,0 +1,13 @@
+{
+  "name": "pocketwms-e2e",
+  "version": "1.0.0",
+  "private": true,
+  "scripts": {
+    "test": "node clean-e2e-db.mjs && playwright test && node clean-e2e-db.mjs",
+    "test:headed": "node clean-e2e-db.mjs && playwright test --headed && node clean-e2e-db.mjs"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.52.0",
+    "@types/node": "^22.0.0"
+  }
+}
