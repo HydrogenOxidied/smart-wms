@@ -4,6 +4,7 @@ from pathlib import Path
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import RedirectResponse
 from fastapi.staticfiles import StaticFiles
 
 from app.core.config import get_settings
@@ -54,6 +55,10 @@ def create_app() -> FastAPI:
 
     web_dist = Path(__file__).resolve().parents[2] / "mobile" / "dist"
     if (web_dist / "index.html").exists():
+        @app.get("/", include_in_schema=False)
+        def redirect_to_web() -> RedirectResponse:
+            return RedirectResponse(url="/web/")
+
         app.mount("/web", StaticFiles(directory=str(web_dist), html=True), name="pwa-web")
 
     return app

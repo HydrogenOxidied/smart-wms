@@ -28,8 +28,11 @@ function resolveDefaultBaseUrl(): string {
     return envUrl.replace(/\/+$/, '');
   }
   if (Platform.OS === 'web' && typeof window !== 'undefined') {
-    const host = window.location.hostname || '127.0.0.1';
-    return `http://${host}:8000/api/v1`;
+    const { protocol, hostname, port, origin } = window.location;
+    if (port === '8081' || port === '19006') {
+      return `${protocol}//${hostname || '127.0.0.1'}:8000/api/v1`;
+    }
+    return `${origin}/api/v1`;
   }
   if (Platform.OS === 'android') {
     return 'http://10.0.2.2:8000/api/v1';
@@ -45,6 +48,16 @@ export function getActiveBaseUrl(): string {
 
 export async function initApiBaseUrl(): Promise<string> {
   const saved = await loadServerUrl();
+  if (Platform.OS === 'web' && typeof window !== 'undefined') {
+    const { port, origin, protocol } = window.location;
+    if (port !== '8081' && port !== '19006') {
+      const sameOriginApi = `${origin}/api/v1`;
+      if (!saved || (protocol === 'https:' && saved.trim().startsWith('http://'))) {
+        activeBaseUrl = sameOriginApi;
+        return activeBaseUrl;
+      }
+    }
+  }
   if (saved && saved.trim().length > 0) {
     activeBaseUrl = saved.trim().replace(/\/+$/, '');
   }
