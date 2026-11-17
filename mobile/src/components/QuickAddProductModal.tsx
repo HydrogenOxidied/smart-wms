@@ -21,6 +21,8 @@ import { BarcodeScannerModal } from './BarcodeScannerModal';
 import { ActionButton, ChipOption, ChipRow, StatusPill } from './CommonUI';
 
 const UNIT_OPTIONS: ChipOption[] = [
+  { key: 'Thùng', label: 'Thùng' },
+  { key: 'Hũ', label: 'Hũ' },
   { key: 'Cái', label: 'Cái' },
   { key: 'Hộp', label: 'Hộp' },
   { key: 'Bịch', label: 'Bịch' },

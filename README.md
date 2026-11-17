@@ -34,6 +34,16 @@
 1. Chạy `start-backend.bat` (API chạy ở `http://0.0.0.0:8000`, tự động nạp dữ liệu mẫu **65 ngày** cho cửa hàng *"Tiệm Bánh & Cafe Mộc"*).
 2. Chạy `start-mobile.bat` (tự động nhận diện IP LAN của máy tính để điện thoại thật dùng **Expo Go** quét QR kết nối được ngay).
 
+### Chạy ngầm 24/7 không hiện cửa sổ CMD (Dành cho Laptop Server `i3-530` / Production)
+- **Chạy ẩn hoàn toàn (`Hide CMD`):** Bấm đúp vào `start-backend-hidden.vbs` (gọi ngầm `start-backend-hidden.ps1` không bật `--reload`, ghi log vào `backend/logs/`).
+- **Kiểm tra trạng thái & RAM / IP LAN:** Chạy `status-backend.bat` (xem URL API và bản Web/PWA tại `http://<LAN_IP>:8000/web`).
+- **Tắt server chạy ngầm:** Chạy `stop-backend-hidden.bat`.
+- **Tự bật ẩn khi mở Windows:** Chạy `install-autostart-hidden.bat` 1 lần duy nhất để cài shortcut vào thư mục `Startup`.
+
+### Bộ mẫu Shop Mắm Tép (`MAM_TEP`) & Đa tài khoản Nhân viên
+- Chọn mẫu **Shop Mắm Tép** khi tạo cửa hàng mới hoặc bấm **`+ Nạp mẫu Kho Shop Mắm Tép (Thùng & Hũ)`** trong tab **Tổng quan** (bao gồm **Thùng Mắm tép chưng thịt**, **Thùng Mắm tép Ba Làng**, chế độ xé lẻ **Thùng → Hũ/Chai**, và vật tư màng seal/xốp nổ).
+- **Quản lý Nhân viên:** 1 Chủ kho (`MANAGER`) có thể tạo **không giới hạn** số lượng tài khoản nhân viên (`STAFF`) trong mục **Nhân viên kho** của tab Tổng quan, bật/tắt khóa tài khoản tức thì mà vẫn giữ nguyên dấu vết lịch sử ai đã xuất/nhập kho.
+
 ### Kịch bản Demo 5 phút trước Hội đồng
 1. **Đăng nhập 1 chạm vai trò `STAFF` (Nhân viên kho)**:
    - Mở tab **Tiêu thụ**: Quét mã vạch `8934588013010` (*Sữa tươi DalatMilk*) để xuất `2 Hộp`, sau đó thử gõ `150` để Hội đồng thấy **Cảnh báo bất thường (`>10x`)** bật lên.

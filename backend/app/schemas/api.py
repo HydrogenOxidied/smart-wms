@@ -15,7 +15,22 @@ MovementType = Literal[
     "PACK_BREAK",
 ]
 UnitMode = Literal["BASE", "PACK"]
-TemplateKey = Literal["CAFE_BAKERY", "MINI_MART", "HARDWARE", "EMPTY"]
+TemplateKey = Literal["MAM_TEP", "CAFE_BAKERY", "MINI_MART", "HARDWARE", "EMPTY"]
+
+
+class StaffCreateRequest(BaseModel):
+    """Manager creates an additional staff or co-manager account for the store."""
+
+    username: str = Field(min_length=3, max_length=64)
+    full_name: str = Field(min_length=2, max_length=120)
+    secret: str = Field(min_length=4, max_length=128)
+    role: RoleType = "STAFF"
+
+
+class StaffStatusUpdate(BaseModel):
+    """Activate or lock a store staff account."""
+
+    is_active: bool
 
 
 class StoreOut(BaseModel):

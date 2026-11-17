@@ -21,6 +21,7 @@ import { TemplateKey } from '../types/wms';
 import { triggerSuccessHaptic } from '../utils/formatters';
 
 const TEMPLATE_OPTIONS: ChipOption[] = [
+  { key: 'MAM_TEP', label: 'Shop Mắm Tép' },
   { key: 'CAFE_BAKERY', label: 'Tiệm Bánh & Cafe' },
   { key: 'MINI_MART', label: 'Tạp hóa Mini' },
   { key: 'HARDWARE', label: 'Kim khí / Điện nước' },
@@ -45,7 +46,7 @@ export function LoginScreen() {
   const [newMgrSecret, setNewMgrSecret] = useState('');
   const [newStaffUser, setNewStaffUser] = useState('');
   const [newStaffSecret, setNewStaffSecret] = useState('');
-  const [selectedTemplate, setSelectedTemplate] = useState<TemplateKey>('CAFE_BAKERY');
+  const [selectedTemplate, setSelectedTemplate] = useState<TemplateKey>('MAM_TEP');
 
   useEffect(() => {
     setServerUrl(getActiveBaseUrl());

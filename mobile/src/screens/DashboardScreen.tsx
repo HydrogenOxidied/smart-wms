@@ -1,5 +1,16 @@
 import React, { useCallback, useState } from 'react';
-import { FlatList, Pressable, RefreshControl, StyleSheet, Switch, Text, View } from 'react-native';
+import {
+  FlatList,
+  Modal,
+  Pressable,
+  RefreshControl,
+  StyleSheet,
+  Switch,
+  Text,
+  TextInput,
+  View,
+} from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import * as DocumentPicker from 'expo-document-picker';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { Ionicons } from '@expo/vector-icons';
@@ -10,7 +21,7 @@ import { useOfflineQueueStore } from '../store/offlineQueueStore';
 import { ThemePreference, useUiStore } from '../store/uiStore';
 import { RADIUS, SPACING, TOUCH_MIN } from '../theme/tokens';
 import { useTheme } from '../theme/useTheme';
-import { ProductForecast, TemplateKey } from '../types/wms';
+import { ProductForecast, TemplateKey, User } from '../types/wms';
 import { formatCurrencyVnd, formatNumber, triggerSuccessHaptic } from '../utils/formatters';
 
 const THEME_OPTIONS: ChipOption[] = [
@@ -66,6 +77,45 @@ const AlertCard = React.memo(
   },
 );
 
+const StaffRow = React.memo(
+  ({
+    member,
+    currentUserId,
+    onToggleActive,
+  }: {
+    member: User;
+    currentUserId: number;
+    onToggleActive: (member: User, nextActive: boolean) => void;
+  }) => {
+    const theme = useTheme();
+    const isSelf = member.id === currentUserId;
+    return (
+      <View style={[styles.staffItem, { backgroundColor: theme.surfaceAlt, borderColor: theme.border }]}>
+        <View style={styles.flexOne}>
+          <View style={styles.rowBetween}>
+            <Text style={[styles.alertName, { color: theme.text }]} numberOfLines={1}>
+              {member.full_name}
+            </Text>
+            <StatusPill
+              text={member.role === 'MANAGER' ? 'Chủ kho' : member.is_active ? 'Đang hoạt động' : 'Đã khóa'}
+              tone={member.role === 'MANAGER' ? 'primary' : member.is_active ? 'secondary' : 'danger'}
+            />
+          </View>
+          <Text style={[styles.alertMeta, { color: theme.textMuted }]}>@{member.username}</Text>
+        </View>
+        {!isSelf ? (
+          <Switch
+            value={member.is_active}
+            onValueChange={(v) => onToggleActive(member, v)}
+            trackColor={{ false: theme.border, true: theme.primarySoft }}
+            thumbColor={member.is_active ? theme.primary : theme.textMuted}
+          />
+        ) : null}
+      </View>
+    );
+  },
+);
+
 export function DashboardScreen() {
   const theme = useTheme();
   const queryClient = useQueryClient();
@@ -74,6 +124,12 @@ export function DashboardScreen() {
   const { setActiveTab, openForecastForProduct, themePref, setThemePref } = useUiStore();
   const [notice, setNotice] = useState<string | null>(null);
   const [importing, setImporting] = useState(false);
+
+  const [staffModalOpen, setStaffModalOpen] = useState(false);
+  const [newStaffUser, setNewStaffUser] = useState('');
+  const [newStaffName, setNewStaffName] = useState('');
+  const [newStaffSecret, setNewStaffSecret] = useState('');
+  const [creatingStaff, setCreatingStaff] = useState(false);
 
   const forecastQuery = useQuery({
     queryKey: ['forecast-overview'],
@@ -90,10 +146,16 @@ export function DashboardScreen() {
     queryFn: () => api.listProducts(),
   });
 
+  const staffQuery = useQuery({
+    queryKey: ['store-staff'],
+    queryFn: api.listStaff,
+  });
+
   const handleRefresh = useCallback(() => {
     void queryClient.invalidateQueries({ queryKey: ['forecast-overview'] });
     void queryClient.invalidateQueries({ queryKey: ['stocktakes'] });
     void queryClient.invalidateQueries({ queryKey: ['products'] });
+    void queryClient.invalidateQueries({ queryKey: ['store-staff'] });
   }, [queryClient]);
 
   const handleToggleLiteMode = useCallback(
@@ -159,12 +221,69 @@ export function DashboardScreen() {
     [handleRefresh],
   );
 
+  const handleCreateStaff = useCallback(async () => {
+    if (!newStaffUser.trim() || !newStaffSecret.trim()) {
+      setNotice('Vui lòng nhập Tên đăng nhập và Mật khẩu cho nhân viên mới.');
+      return;
+    }
+    setCreatingStaff(true);
+    try {
+      const created = await api.createStaff({
+        username: newStaffUser.trim(),
+        full_name: newStaffName.trim() || newStaffUser.trim(),
+        secret: newStaffSecret,
+        role: 'STAFF',
+      });
+      await triggerSuccessHaptic();
+      setNewStaffUser('');
+      setNewStaffName('');
+      setNewStaffSecret('');
+      setStaffModalOpen(false);
+      setNotice(`Đã thêm tài khoản nhân viên "@${created.username}".`);
+      void queryClient.invalidateQueries({ queryKey: ['store-staff'] });
+    } catch (err) {
+      setNotice(err instanceof Error ? err.message : 'Không thể tạo tài khoản nhân viên.');
+    } finally {
+      setCreatingStaff(false);
+    }
+  }, [newStaffUser, newStaffName, newStaffSecret, queryClient]);
+
+  const handleToggleStaff = useCallback(
+    async (member: User, nextActive: boolean) => {
+      try {
+        await api.updateStaffStatus(member.id, nextActive);
+        await triggerSuccessHaptic();
+        setNotice(
+          nextActive
+            ? `Đã mở khóa tài khoản "@${member.username}".`
+            : `Đã tạm khóa tài khoản "@${member.username}".`,
+        );
+        void queryClient.invalidateQueries({ queryKey: ['store-staff'] });
+      } catch (err) {
+        setNotice(err instanceof Error ? err.message : 'Không thể cập nhật trạng thái nhân viên.');
+      }
+    },
+    [queryClient],
+  );
+
   const overview = forecastQuery.data;
   const urgentItems = (overview?.items || []).filter((i) => i.status !== 'HEALTHY').slice(0, 4);
   const pendingStocktakes = (stocktakesQuery.data || []).filter((s) => s.status !== 'APPROVED').length;
   const totalProducts = productsQuery.data?.length ?? overview?.total_skus ?? 0;
+  const staffMembers = staffQuery.data || [];
 
-  const sections = ['header', 'kpis', 'alerts', 'tools', 'account'];
+  const sections = ['header', 'kpis', 'alerts', 'staff', 'tools', 'account'];
+
+  const renderStaffItem = useCallback(
+    ({ item }: { item: User }) => (
+      <StaffRow
+        member={item}
+        currentUserId={user?.id || 0}
+        onToggleActive={(m, nextVal) => void handleToggleStaff(m, nextVal)}
+      />
+    ),
+    [user?.id, handleToggleStaff],
+  );
 
   const renderAlertItem = useCallback(
     ({ item }: { item: ProductForecast }) => (
@@ -283,6 +402,34 @@ export function DashboardScreen() {
         );
       }
 
+      if (item === 'staff') {
+        return (
+          <View style={[styles.card, { backgroundColor: theme.surface, borderColor: theme.border }]}>
+            <View style={styles.rowBetween}>
+              <Text style={[styles.sectionTitle, { color: theme.text }]}>
+                Nhân viên kho ({staffMembers.filter((m) => m.role === 'STAFF').length} — Không giới hạn)
+              </Text>
+              <StatusPill text="Đa tài khoản" tone="secondary" />
+            </View>
+            <Text style={[styles.subText, { color: theme.textMuted }]}>
+              Chủ cửa hàng có thể cấp không giới hạn tài khoản cho từng nhân viên quét mã & chốt ca riêng, lưu vết đầy đủ ai đã trừ kho.
+            </Text>
+            <FlatList
+              data={staffMembers}
+              renderItem={renderStaffItem}
+              keyExtractor={(m) => String(m.id)}
+              contentContainerStyle={styles.alertList}
+            />
+            <ActionButton
+              label="+ Thêm tài khoản Nhân viên"
+              icon="person-add-outline"
+              variant="secondary"
+              onPress={() => setStaffModalOpen(true)}
+            />
+          </View>
+        );
+      }
+
       if (item === 'tools') {
         return (
           <View style={[styles.card, { backgroundColor: theme.surface, borderColor: theme.border }]}>
@@ -290,6 +437,13 @@ export function DashboardScreen() {
               Nạp dữ liệu hàng loạt & Bộ mẫu nhanh
             </Text>
             <View style={styles.btnStack}>
+              <ActionButton
+                label="+ Nạp mẫu Kho Shop Mắm Tép (Thùng & Hũ)"
+                icon="cube-outline"
+                variant="primary"
+                loading={importing}
+                onPress={() => void handleApplyTemplate('MAM_TEP')}
+              />
               <ActionButton
                 label="Import Sản phẩm từ CSV"
                 icon="document-attach-outline"
@@ -355,6 +509,8 @@ export function DashboardScreen() {
       pendingStocktakes,
       urgentItems,
       renderAlertItem,
+      staffMembers,
+      renderStaffItem,
       importing,
       handleToggleLiteMode,
       handleUploadCsv,
@@ -367,19 +523,96 @@ export function DashboardScreen() {
   );
 
   return (
-    <FlatList
-      data={sections}
-      renderItem={renderSection}
-      keyExtractor={(s) => s}
-      contentContainerStyle={styles.listContent}
-      refreshControl={
-        <RefreshControl
-          refreshing={forecastQuery.isRefetching}
-          onRefresh={handleRefresh}
-          tintColor={theme.primary}
-        />
-      }
-    />
+    <View style={styles.flexOne}>
+      <FlatList
+        data={sections}
+        renderItem={renderSection}
+        keyExtractor={(s) => s}
+        contentContainerStyle={styles.listContent}
+        refreshControl={
+          <RefreshControl
+            refreshing={forecastQuery.isRefetching}
+            onRefresh={handleRefresh}
+            tintColor={theme.primary}
+          />
+        }
+      />
+
+      <Modal
+        visible={staffModalOpen}
+        animationType="slide"
+        onRequestClose={() => setStaffModalOpen(false)}
+      >
+        <SafeAreaView style={[styles.modalContainer, { backgroundColor: theme.bg }]}>
+          <View
+            style={[
+              styles.modalHeader,
+              { backgroundColor: theme.surface, borderBottomColor: theme.border },
+            ]}
+          >
+            <Text style={[styles.sectionTitle, { color: theme.text }]}>
+              Cấp tài khoản Nhân viên mới
+            </Text>
+            <Pressable
+              onPress={() => setStaffModalOpen(false)}
+              accessibilityRole="button"
+              accessibilityLabel="Đóng biểu mẫu thêm nhân viên"
+              android_ripple={{ color: theme.ripple }}
+              style={({ pressed }) => [
+                styles.closeBtn,
+                { backgroundColor: theme.surfaceAlt, opacity: pressed ? 0.75 : 1 },
+              ]}
+            >
+              <Ionicons name="close" size={24} color={theme.text} />
+            </Pressable>
+          </View>
+
+          <View style={styles.modalBody}>
+            <Text style={[styles.subText, { color: theme.textMuted }]}>Tên đăng nhập *</Text>
+            <TextInput
+              value={newStaffUser}
+              onChangeText={setNewStaffUser}
+              autoCapitalize="none"
+              placeholder="Ví dụ: nv_casang"
+              placeholderTextColor={theme.textMuted}
+              style={[
+                styles.input,
+                { backgroundColor: theme.surfaceAlt, color: theme.text, borderColor: theme.border },
+              ]}
+            />
+            <Text style={[styles.subText, { color: theme.textMuted }]}>Họ tên nhân viên</Text>
+            <TextInput
+              value={newStaffName}
+              onChangeText={setNewStaffName}
+              placeholder="Ví dụ: Nguyễn Minh Tâm"
+              placeholderTextColor={theme.textMuted}
+              style={[
+                styles.input,
+                { backgroundColor: theme.surfaceAlt, color: theme.text, borderColor: theme.border },
+              ]}
+            />
+            <Text style={[styles.subText, { color: theme.textMuted }]}>Mật khẩu đăng nhập *</Text>
+            <TextInput
+              value={newStaffSecret}
+              onChangeText={setNewStaffSecret}
+              secureTextEntry
+              placeholder="Tối thiểu 4 ký tự"
+              placeholderTextColor={theme.textMuted}
+              style={[
+                styles.input,
+                { backgroundColor: theme.surfaceAlt, color: theme.text, borderColor: theme.border },
+              ]}
+            />
+            <ActionButton
+              label="Tạo tài khoản Nhân viên"
+              icon="checkmark-circle-outline"
+              loading={creatingStaff}
+              onPress={() => void handleCreateStaff()}
+            />
+          </View>
+        </SafeAreaView>
+      </Modal>
+    </View>
   );
 }
 
@@ -482,5 +715,40 @@ const styles = StyleSheet.create({
   splitRow: {
     flexDirection: 'row',
     gap: SPACING.sm,
+  },
+  staffItem: {
+    borderRadius: RADIUS.md,
+    borderWidth: 1,
+    padding: SPACING.md,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: SPACING.sm,
+  },
+  modalContainer: { flex: 1 },
+  modalHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    padding: SPACING.lg,
+    borderBottomWidth: 1,
+  },
+  closeBtn: {
+    minWidth: TOUCH_MIN,
+    minHeight: TOUCH_MIN,
+    borderRadius: RADIUS.md,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  modalBody: {
+    padding: SPACING.lg,
+    gap: SPACING.md,
+  },
+  input: {
+    minHeight: TOUCH_MIN,
+    borderRadius: RADIUS.md,
+    borderWidth: 1,
+    paddingHorizontal: SPACING.md,
+    fontSize: 15,
   },
 });

@@ -9,7 +9,7 @@ export type MovementType =
   | 'PACK_BREAK';
 
 export type UnitMode = 'BASE' | 'PACK';
-export type TemplateKey = 'CAFE_BAKERY' | 'MINI_MART' | 'HARDWARE' | 'EMPTY';
+export type TemplateKey = 'MAM_TEP' | 'CAFE_BAKERY' | 'MINI_MART' | 'HARDWARE' | 'EMPTY';
 
 export interface Store {
   id: number;

@@ -391,3 +391,88 @@ def test_forecasting_tiers_damage_exclusion_and_csv_import(client_and_db):
     po = client.get("/api/v1/forecasts/export-po", headers=mgr_headers)
     assert po.status_code == 200
     assert "SoLuongDeXuatNhap" in po.text
+
+
+def test_mam_tep_template_and_unlimited_staff_management(client_and_db):
+    client, _ = client_and_db
+
+    # Create fresh Shop Mam Tep store using MAM_TEP template
+    reg = client.post(
+        "/api/v1/auth/register-store",
+        json={
+            "store_name": "Shop Mắm Tép Ba Làng",
+            "manager_username": "chu_mamtep",
+            "manager_full_name": "Chị Lan Mắm Tép",
+            "manager_secret": "SAMPLE_MamTep99!",
+            "industry_template": "MAM_TEP",
+            "lite_mode": True,
+        },
+    )
+    assert reg.status_code == 201, reg.text
+    mgr_headers = {"Authorization": f"Bearer {reg.json()['access_token']}"}
+
+    products = client.get("/api/v1/products", headers=mgr_headers).json()
+    assert len(products) == 7
+    thung_500 = next(p for p in products if p["sku"] == "MT-THUNG-500")
+    assert thung_500["unit"] == "Thùng"
+    assert thung_500["current_stock"] == 15.0
+
+    # Deduct 2 Thung Mam Tep
+    out_res = client.post(
+        "/api/v1/movements",
+        json={
+            "product_id": thung_500["id"],
+            "movement_type": "OUT_CONSUMPTION",
+            "quantity": 2,
+            "unit_mode": "BASE",
+            "note": "Xuất sỉ 2 thùng mắm tép",
+            "idempotency_key": str(uuid.uuid4()),
+        },
+        headers=mgr_headers,
+    )
+    assert out_res.status_code == 201
+    assert out_res.json()["balance_after"] == 13.0
+
+    # Owner creates multiple staff accounts without artificial limit
+    for uname, fname in [
+        ("nv_sang", "Nhân viên Ca Sáng"),
+        ("nv_chieu", "Nhân viên Ca Chiều"),
+        ("nv_donggoi", "Nhân viên Đóng gói"),
+    ]:
+        created = client.post(
+            "/api/v1/store/staff",
+            json={
+                "username": uname,
+                "full_name": fname,
+                "secret": "SAMPLE_Staff123!",
+                "role": "STAFF",
+            },
+            headers=mgr_headers,
+        )
+        assert created.status_code == 201, created.text
+
+    staff_list = client.get("/api/v1/store/staff", headers=mgr_headers).json()
+    assert len(staff_list) == 4  # 1 manager + 3 staff
+
+    # Staff logs in cleanly
+    login_ok = client.post(
+        "/api/v1/auth/login",
+        json={"username": "nv_sang", "secret": "SAMPLE_Staff123!"},
+    )
+    assert login_ok.status_code == 200
+
+    # Owner deactivates nv_sang -> login immediately rejected
+    nv_sang_obj = next(u for u in staff_list if u["username"] == "nv_sang")
+    lock_res = client.patch(
+        f"/api/v1/store/staff/{nv_sang_obj['id']}",
+        json={"is_active": False},
+        headers=mgr_headers,
+    )
+    assert lock_res.status_code == 200
+    assert lock_res.json()["is_active"] is False
+
+    login_locked = client.post(
+        "/api/v1/auth/login",
+        json={"username": "nv_sang", "secret": "SAMPLE_Staff123!"},
+    )
+    assert login_locked.status_code == 401

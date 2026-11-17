@@ -1,8 +1,10 @@
 """PocketWMS FastAPI Application Entrypoint."""
 from contextlib import asynccontextmanager
+from pathlib import Path
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
 
 from app.core.config import get_settings
 from app.core.database import Base, SessionLocal, engine
@@ -49,6 +51,10 @@ def create_app() -> FastAPI:
     app.include_router(stocktakes.router, prefix=settings.api_prefix)
     app.include_router(forecasts.router, prefix=settings.api_prefix)
     app.include_router(imports.router, prefix=settings.api_prefix)
+
+    web_dist = Path(__file__).resolve().parents[2] / "mobile" / "dist"
+    if (web_dist / "index.html").exists():
+        app.mount("/web", StaticFiles(directory=str(web_dist), html=True), name="pwa-web")
 
     return app
 

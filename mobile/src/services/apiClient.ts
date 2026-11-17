@@ -13,6 +13,7 @@ import {
   StocktakeSession,
   Store,
   TemplateKey,
+  User,
 } from '../types/wms';
 import {
   loadSecureToken,
@@ -163,6 +164,25 @@ export const api = {
     requestJson<ImportSummary>('/store/apply-template', {
       method: 'POST',
       body: JSON.stringify({ template_key }),
+    }),
+
+  listStaff: () => requestJson<User[]>('/store/staff'),
+
+  createStaff: (payload: {
+    username: string;
+    full_name: string;
+    secret: string;
+    role?: RoleType;
+  }) =>
+    requestJson<User>('/store/staff', {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    }),
+
+  updateStaffStatus: (userId: number, is_active: boolean) =>
+    requestJson<User>(`/store/staff/${userId}`, {
+      method: 'PATCH',
+      body: JSON.stringify({ is_active }),
     }),
 
   listProducts: (params?: { search?: string; category?: string; low_stock_only?: boolean }) => {
