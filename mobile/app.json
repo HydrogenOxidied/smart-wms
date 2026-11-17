@@ -1,0 +1,41 @@
+{
+  "expo": {
+    "name": "PocketWMS",
+    "slug": "pocket-wms",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "icon": "./assets/icon.png",
+    "userInterfaceStyle": "automatic",
+    "ios": {
+      "supportsTablet": true,
+      "infoPlist": {
+        "NSCameraUsageDescription": "PocketWMS cần quyền Camera để quét mã vạch sản phẩm và kiểm kê kho."
+      }
+    },
+    "android": {
+      "adaptiveIcon": {
+        "backgroundColor": "#D1FAE5",
+        "foregroundImage": "./assets/android-icon-foreground.png",
+        "backgroundImage": "./assets/android-icon-background.png",
+        "monochromeImage": "./assets/android-icon-monochrome.png"
+      },
+      "permissions": [
+        "android.permission.CAMERA"
+      ],
+      "predictiveBackGestureEnabled": false
+    },
+    "web": {
+      "favicon": "./assets/favicon.png"
+    },
+    "plugins": [
+      "expo-secure-store",
+      "expo-sharing",
+      [
+        "expo-camera",
+        {
+          "cameraPermission": "PocketWMS cần quyền Camera để quét mã vạch kiểm kê và xuất kho."
+        }
+      ]
+    ]
+  }
+}

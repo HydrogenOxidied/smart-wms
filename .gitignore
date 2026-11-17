@@ -1,0 +1,35 @@
+# Python / Backend
+.venv/
+venv/
+__pycache__/
+*.py[cod]
+*.pyo
+.pytest_cache/
+.mypy_cache/
+*.db
+*.db-shm
+*.db-wal
+.env
+
+# Node / Expo Mobile
+node_modules/
+.expo/
+dist/
+web-build/
+android/
+ios/
+*.jks
+*.p8
+*.p12
+*.key
+*.mobileprovision
+*.orig.*
+npm-debug.*
+yarn-debug.*
+yarn-error.*
+
+# OS / Editor
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
