@@ -51,7 +51,7 @@ const MANAGER_TABS: NavTabDef[] = [
 
 const STAFF_TABS: NavTabDef[] = [
   { key: 'inventory', label: 'Kho hàng', icon: 'cube-outline' },
-  { key: 'consumption', label: 'Xuất / Nhập', icon: 'swap-vertical-outline' },
+  { key: 'consumption', label: 'Xuất kho', icon: 'swap-vertical-outline' },
   { key: 'stocktake', label: 'Kiểm kê', icon: 'clipboard-outline' },
   { key: 'account', label: 'Tài khoản', icon: 'person-circle-outline' },
 ];

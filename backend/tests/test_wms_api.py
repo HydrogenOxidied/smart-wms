@@ -97,8 +97,17 @@ def test_rbac_and_store_registration(client_and_db):
 def test_quick_add_fuzzy_duplicate_and_pack_break(client_and_db):
     client, _ = client_and_db
     staff_headers = _auth_headers(client, "STAFF")
+    mgr_headers = _auth_headers(client, "MANAGER")
 
-    # 3-field Lite Quick-Add (no SKU, no barcode provided)
+    # STAFF cannot create products
+    staff_create = client.post(
+        "/api/v1/products",
+        json={"name": "Sản phẩm trái phép", "unit": "Cái", "current_stock": 10},
+        headers=staff_headers,
+    )
+    assert staff_create.status_code == 403
+
+    # MANAGER 3-field Lite Quick-Add (no SKU, no barcode provided)
     created = client.post(
         "/api/v1/products",
         json={
@@ -109,13 +118,21 @@ def test_quick_add_fuzzy_duplicate_and_pack_break(client_and_db):
             "pack_unit": "Bịch",
             "pack_conversion_rate": 50,
         },
-        headers=staff_headers,
+        headers=mgr_headers,
     )
     assert created.status_code == 201, created.text
     item = created.json()
     assert item["sku"]
     assert item["barcode"].startswith("200")
     assert item["sealed_packs"] == 4
+
+    # STAFF cannot edit products
+    staff_patch = client.patch(
+        f"/api/v1/products/{item['id']}",
+        json={"min_stock_level": 999},
+        headers=staff_headers,
+    )
+    assert staff_patch.status_code == 403
 
     # Fuzzy duplicate warning ignores Vietnamese accents
     dups = client.get(

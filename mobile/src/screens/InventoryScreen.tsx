@@ -253,10 +253,14 @@ export function InventoryScreen() {
         setConfirmDelete(false);
         setSelectedProduct(found);
       } else {
-        setBannerMsg(`Không tìm thấy mã "${code}". Bấm "+ Thêm mặt hàng" để tạo mới.`);
+        setBannerMsg(
+          isManager
+            ? `Không tìm thấy mã "${code}". Bấm "+ Thêm mặt hàng" để tạo mới.`
+            : `Không tìm thấy sản phẩm khớp mã "${code}" trong kho.`,
+        );
       }
     },
-    [products],
+    [products, isManager],
   );
 
   const handleDeleteProduct = useCallback(async () => {
@@ -359,26 +363,30 @@ export function InventoryScreen() {
             </Text>
             <Text style={[styles.subInfo, { color: theme.textMuted }]}>
               {products.length === 0
-                ? 'Nhấn nút "+ Thêm mặt hàng" bên dưới để bắt đầu.'
+                ? isManager
+                  ? 'Nhấn nút "+ Thêm mặt hàng" bên dưới để bắt đầu.'
+                  : 'Chờ Chủ kho thêm mặt hàng vào danh mục kho.'
                 : 'Thử từ khóa khác hoặc chọn bộ lọc Tất cả.'}
             </Text>
           </View>
         }
       />
 
-      <Pressable
-        onPress={() => setQuickAddOpen(true)}
-        accessibilityRole="button"
-        accessibilityLabel="Thêm mặt hàng mới"
-        android_ripple={{ color: theme.ripple }}
-        style={({ pressed }) => [
-          styles.fab,
-          { backgroundColor: theme.primary, opacity: pressed ? 0.88 : 1 },
-        ]}
-      >
-        <Ionicons name="add" size={22} color={theme.primaryTextOn} />
-        <Text style={[styles.fabText, { color: theme.primaryTextOn }]}>Thêm mặt hàng</Text>
-      </Pressable>
+      {isManager ? (
+        <Pressable
+          onPress={() => setQuickAddOpen(true)}
+          accessibilityRole="button"
+          accessibilityLabel="Thêm mặt hàng mới"
+          android_ripple={{ color: theme.ripple }}
+          style={({ pressed }) => [
+            styles.fab,
+            { backgroundColor: theme.primary, opacity: pressed ? 0.88 : 1 },
+          ]}
+        >
+          <Ionicons name="add" size={22} color={theme.primaryTextOn} />
+          <Text style={[styles.fabText, { color: theme.primaryTextOn }]}>Thêm mặt hàng</Text>
+        </Pressable>
+      ) : null}
 
       <BarcodeScannerModal
         visible={scannerOpen}
@@ -387,19 +395,21 @@ export function InventoryScreen() {
         onClose={() => setScannerOpen(false)}
       />
 
-      <QuickAddProductModal
-        visible={quickAddOpen}
-        liteMode={Boolean(store?.lite_mode)}
-        onClose={() => setQuickAddOpen(false)}
-        onCreated={(prod) => {
-          setQuickAddOpen(false);
-          setBannerMsg(`Đã thêm "${prod.name}" (${prod.sku}).`);
-          void queryClient.invalidateQueries({ queryKey: ['products'] });
-          void queryClient.invalidateQueries({ queryKey: ['forecast-overview'] });
-          void queryClient.invalidateQueries({ queryKey: ['movements'] });
-          void queryClient.invalidateQueries({ queryKey: ['movements-summary'] });
-        }}
-      />
+      {isManager ? (
+        <QuickAddProductModal
+          visible={quickAddOpen}
+          liteMode={Boolean(store?.lite_mode)}
+          onClose={() => setQuickAddOpen(false)}
+          onCreated={(prod) => {
+            setQuickAddOpen(false);
+            setBannerMsg(`Đã thêm "${prod.name}" (${prod.sku}).`);
+            void queryClient.invalidateQueries({ queryKey: ['products'] });
+            void queryClient.invalidateQueries({ queryKey: ['forecast-overview'] });
+            void queryClient.invalidateQueries({ queryKey: ['movements'] });
+            void queryClient.invalidateQueries({ queryKey: ['movements-summary'] });
+          }}
+        />
+      ) : null}
 
       <Modal
         visible={Boolean(selectedProduct)}
@@ -452,7 +462,7 @@ export function InventoryScreen() {
                   {selectedProduct.shelf_location || '—'} · NCC: {selectedProduct.supplier_name || '—'}
                 </Text>
                 <ActionButton
-                  label="Xuất / Nhập mặt hàng này →"
+                  label={isManager ? 'Xuất / Nhập mặt hàng này →' : 'Xuất kho mặt hàng này →'}
                   icon="swap-vertical-outline"
                   onPress={() => {
                     const pid = selectedProduct.id;

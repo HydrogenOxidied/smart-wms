@@ -121,11 +121,11 @@ def get_product(
 @router.post("", response_model=ProductOut, status_code=status.HTTP_201_CREATED)
 def create_new_product(
     payload: ProductCreate,
-    current_user: Annotated[User, Depends(get_current_user)],
+    manager: Annotated[User, Depends(require_manager)],
     db: Annotated[Session, Depends(get_db)],
 ) -> ProductOut:
-    """Create a product (supports 3-field Lite Quick-Add or full Warehouse Pro configuration)."""
-    product = create_product(db, current_user, payload)
+    """Create a product (Manager only; supports 3-field Lite Quick-Add or full Warehouse Pro)."""
+    product = create_product(db, manager, payload)
     return ProductOut.model_validate(product)
 
 
@@ -133,11 +133,11 @@ def create_new_product(
 def patch_product(
     product_id: int,
     payload: ProductUpdate,
-    current_user: Annotated[User, Depends(get_current_user)],
+    manager: Annotated[User, Depends(require_manager)],
     db: Annotated[Session, Depends(get_db)],
 ) -> ProductOut:
-    """Update product metadata, min stock, lead time, or barcode."""
-    product = update_product(db, current_user, product_id, payload)
+    """Update product metadata, min stock, lead time, or barcode (Manager only)."""
+    product = update_product(db, manager, product_id, payload)
     return ProductOut.model_validate(product)
 
 

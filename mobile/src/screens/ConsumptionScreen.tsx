@@ -445,13 +445,17 @@ export function ConsumptionScreen() {
           <View style={[styles.card, { backgroundColor: theme.surface, borderColor: theme.border }]}>
             <Text style={[styles.sectionTitle, { color: theme.text }]}>Kho chưa có mặt hàng</Text>
             <Text style={[styles.subText, { color: theme.textMuted }]}>
-              Hãy thêm mặt hàng đầu tiên trong Kho hàng trước khi thực hiện Xuất / Nhập.
+              {isManager
+                ? 'Hãy thêm mặt hàng đầu tiên trong Kho hàng trước khi thực hiện Xuất / Nhập.'
+                : 'Kho hiện chưa có mặt hàng nào. Vui lòng chờ Chủ kho thêm sản phẩm trước khi xuất kho.'}
             </Text>
-            <ActionButton
-              label="Mở Kho hàng để thêm sản phẩm →"
-              icon="cube-outline"
-              onPress={() => setActiveTab('inventory')}
-            />
+            {isManager ? (
+              <ActionButton
+                label="Mở Kho hàng để thêm sản phẩm →"
+                icon="cube-outline"
+                onPress={() => setActiveTab('inventory')}
+              />
+            ) : null}
           </View>
         );
       }
@@ -749,6 +753,7 @@ export function ConsumptionScreen() {
     },
     [
       products.length,
+      isManager,
       theme,
       setActiveTab,
       productSearch,
