@@ -141,7 +141,7 @@ export function LoginScreen() {
       if (item === 'hero') {
         return (
           <View style={styles.heroWrap}>
-            <StatusPill text="WMS + Dự báo AI" tone="primary" />
+            <StatusPill text="Quản lý kho thông minh" tone="primary" />
             <Text style={[styles.brandTitle, { color: theme.text }]}>PocketWMS</Text>
             <Text style={[styles.brandSub, { color: theme.textMuted }]}>
               Quản lý kho, xuất nhập & dự báo thông minh

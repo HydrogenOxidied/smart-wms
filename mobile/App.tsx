@@ -1,8 +1,7 @@
-import React, { useCallback, useEffect, useMemo } from 'react';
+import React, { useEffect, useMemo } from 'react';
 import {
   ActivityIndicator,
   BackHandler,
-  FlatList,
   Pressable,
   StyleSheet,
   Text,
@@ -47,7 +46,7 @@ const MANAGER_TABS: NavTabDef[] = [
   { key: 'inventory', label: 'Kho hàng', icon: 'cube-outline' },
   { key: 'consumption', label: 'Xuất / Nhập', icon: 'swap-vertical-outline' },
   { key: 'stocktake', label: 'Kiểm kê', icon: 'clipboard-outline' },
-  { key: 'forecast', label: 'Dự báo AI', icon: 'analytics-outline' },
+  { key: 'forecast', label: 'Dự báo', icon: 'analytics-outline' },
 ];
 
 const STAFF_TABS: NavTabDef[] = [
@@ -132,13 +131,6 @@ function RootShell() {
     [user?.role],
   );
 
-  const renderTabItem = useCallback(
-    ({ item }: { item: NavTabDef }) => (
-      <BottomTabButton tab={item} active={item.key === activeTab} onSelect={setActiveTab} />
-    ),
-    [activeTab, setActiveTab],
-  );
-
   if (!isHydrated) {
     return (
       <SafeAreaView style={[styles.centerWrap, { backgroundColor: theme.bg }]}>
@@ -190,14 +182,16 @@ function RootShell() {
 
       <View style={[styles.bottomBar, { backgroundColor: theme.surface, borderTopColor: theme.border }]}>
         <View style={styles.bottomBarInner}>
-          <FlatList
-            horizontal
-            scrollEnabled={false}
-            data={visibleTabs}
-            renderItem={renderTabItem}
-            keyExtractor={(t) => t.key}
-            contentContainerStyle={styles.tabRow}
-          />
+          <View style={styles.tabRow}>
+            {visibleTabs.map((t) => (
+              <BottomTabButton
+                key={t.key}
+                tab={t}
+                active={t.key === activeTab}
+                onSelect={setActiveTab}
+              />
+            ))}
+          </View>
         </View>
       </View>
     </SafeAreaView>
@@ -259,14 +253,14 @@ const styles = StyleSheet.create({
     alignSelf: 'center',
   },
   tabRow: {
-    flexGrow: 1,
-    justifyContent: 'space-around',
+    flexDirection: 'row',
     alignItems: 'center',
+    width: '100%',
   },
   tabItem: {
+    flex: 1,
     minHeight: TOUCH_MIN,
-    minWidth: 64,
-    paddingHorizontal: SPACING.sm,
+    paddingHorizontal: 2,
     paddingVertical: SPACING.xs,
     justifyContent: 'center',
     alignItems: 'center',
@@ -274,6 +268,7 @@ const styles = StyleSheet.create({
   },
   tabLabel: {
     fontSize: 12,
-    fontWeight: '500',
+    fontWeight: '600',
+    textAlign: 'center',
   },
 });

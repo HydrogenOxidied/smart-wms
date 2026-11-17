@@ -535,7 +535,7 @@ export function DashboardScreen() {
               <Pressable
                 onPress={() => setActiveTab('forecast')}
                 accessibilityRole="button"
-                accessibilityLabel="Xem dự báo AI"
+                accessibilityLabel="Xem dự báo"
                 style={({ pressed }) => [styles.linkTouch, { opacity: pressed ? 0.7 : 1 }]}
               >
                 <Text style={[styles.linkText, { color: theme.primary }]}>Dự báo →</Text>
