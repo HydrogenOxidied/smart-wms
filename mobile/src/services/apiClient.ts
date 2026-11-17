@@ -172,7 +172,7 @@ export const api = {
   createStaff: (payload: {
     username: string;
     full_name: string;
-    secret: string;
+    secret?: string;
     role?: RoleType;
   }) =>
     requestJson<User>('/store/staff', {
@@ -184,6 +184,23 @@ export const api = {
     requestJson<User>(`/store/staff/${userId}`, {
       method: 'PATCH',
       body: JSON.stringify({ is_active }),
+    }),
+
+  resetStaffSecret: (userId: number, new_secret = '1234') =>
+    requestJson<User>(`/store/staff/${userId}/secret`, {
+      method: 'PATCH',
+      body: JSON.stringify({ new_secret }),
+    }),
+
+  deleteStaff: (userId: number) =>
+    requestJson<{ status: string; id: number }>(`/store/staff/${userId}`, {
+      method: 'DELETE',
+    }),
+
+  changeSecret: (current_secret: string, new_secret: string) =>
+    requestJson<{ status: string; message: string }>('/auth/change-secret', {
+      method: 'POST',
+      body: JSON.stringify({ current_secret, new_secret }),
     }),
 
   listProducts: (params?: { search?: string; category?: string; low_stock_only?: boolean }) => {

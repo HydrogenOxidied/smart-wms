@@ -82,35 +82,110 @@ const StaffRow = React.memo(
   ({
     member,
     currentUserId,
+    confirmingDelete,
+    deletingStaff,
     onToggleActive,
+    onOpenResetSecret,
+    onRequestDelete,
+    onConfirmDelete,
   }: {
     member: User;
     currentUserId: number;
+    confirmingDelete: boolean;
+    deletingStaff: boolean;
     onToggleActive: (member: User, nextActive: boolean) => void;
+    onOpenResetSecret: (member: User) => void;
+    onRequestDelete: (memberId: number | null) => void;
+    onConfirmDelete: (member: User) => void;
   }) => {
     const theme = useTheme();
     const isSelf = member.id === currentUserId;
     return (
-      <View style={[styles.staffItem, { backgroundColor: theme.surfaceAlt, borderColor: theme.border }]}>
-        <View style={styles.flexOne}>
-          <View style={styles.rowBetween}>
-            <Text style={[styles.alertName, { color: theme.text }]} numberOfLines={1}>
-              {member.full_name}
-            </Text>
-            <StatusPill
-              text={member.role === 'MANAGER' ? 'Chủ kho' : member.is_active ? 'Hoạt động' : 'Đã khóa'}
-              tone={member.role === 'MANAGER' ? 'primary' : member.is_active ? 'secondary' : 'danger'}
-            />
+      <View
+        style={[
+          styles.staffItemWrap,
+          {
+            backgroundColor: theme.surfaceAlt,
+            borderColor: confirmingDelete ? theme.danger : theme.border,
+          },
+        ]}
+      >
+        <View style={styles.staffTopRow}>
+          <View style={styles.flexOne}>
+            <View style={styles.rowBetween}>
+              <Text style={[styles.alertName, { color: theme.text }]} numberOfLines={1}>
+                {member.full_name}
+              </Text>
+              <StatusPill
+                text={member.role === 'MANAGER' ? 'Chủ kho' : member.is_active ? 'Hoạt động' : 'Đã khóa'}
+                tone={member.role === 'MANAGER' ? 'primary' : member.is_active ? 'secondary' : 'danger'}
+              />
+            </View>
+            <Text style={[styles.alertMeta, { color: theme.textMuted }]}>@{member.username}</Text>
           </View>
-          <Text style={[styles.alertMeta, { color: theme.textMuted }]}>@{member.username}</Text>
+          {!isSelf ? (
+            <View style={styles.staffControls}>
+              <Switch
+                value={member.is_active}
+                onValueChange={(v) => onToggleActive(member, v)}
+                trackColor={{ false: theme.border, true: theme.primarySoft }}
+                thumbColor={member.is_active ? theme.primary : theme.textMuted}
+              />
+              <Pressable
+                onPress={() => onOpenResetSecret(member)}
+                accessibilityRole="button"
+                accessibilityLabel={`Đổi mật khẩu cho ${member.username}`}
+                android_ripple={{ color: theme.ripple }}
+                style={({ pressed }) => [
+                  styles.staffIconBtn,
+                  { backgroundColor: theme.surface, borderColor: theme.border, opacity: pressed ? 0.75 : 1 },
+                ]}
+              >
+                <Ionicons name="key-outline" size={18} color={theme.secondary} />
+              </Pressable>
+              <Pressable
+                onPress={() => onRequestDelete(confirmingDelete ? null : member.id)}
+                accessibilityRole="button"
+                accessibilityLabel={`Xóa nhân viên ${member.username}`}
+                android_ripple={{ color: theme.ripple }}
+                style={({ pressed }) => [
+                  styles.staffIconBtn,
+                  { backgroundColor: theme.dangerSoft, borderColor: theme.danger, opacity: pressed ? 0.75 : 1 },
+                ]}
+              >
+                <Ionicons name="trash-outline" size={18} color={theme.danger} />
+              </Pressable>
+            </View>
+          ) : null}
         </View>
-        {!isSelf ? (
-          <Switch
-            value={member.is_active}
-            onValueChange={(v) => onToggleActive(member, v)}
-            trackColor={{ false: theme.border, true: theme.primarySoft }}
-            thumbColor={member.is_active ? theme.primary : theme.textMuted}
-          />
+
+        {!isSelf && confirmingDelete ? (
+          <View
+            style={[
+              styles.staffConfirmBox,
+              { backgroundColor: theme.dangerSoft, borderColor: theme.danger },
+            ]}
+          >
+            <Text style={[styles.subText, { color: theme.text }]}>
+              Xóa nhân viên "@{member.username}" khỏi cửa hàng?
+            </Text>
+            <View style={styles.splitRow}>
+              <ActionButton
+                label="Hủy"
+                variant="outline"
+                style={styles.flexOne}
+                onPress={() => onRequestDelete(null)}
+              />
+              <ActionButton
+                label="Xác nhận xóa"
+                icon="trash-outline"
+                variant="danger"
+                style={styles.flexOne}
+                loading={deletingStaff}
+                onPress={() => onConfirmDelete(member)}
+              />
+            </View>
+          </View>
         ) : null}
       </View>
     );
@@ -129,8 +204,21 @@ export function DashboardScreen() {
   const [staffModalOpen, setStaffModalOpen] = useState(false);
   const [newStaffUser, setNewStaffUser] = useState('');
   const [newStaffName, setNewStaffName] = useState('');
-  const [newStaffSecret, setNewStaffSecret] = useState('');
+  const [newStaffSecret, setNewStaffSecret] = useState('1234');
   const [creatingStaff, setCreatingStaff] = useState(false);
+  const [confirmDeleteStaffId, setConfirmDeleteStaffId] = useState<number | null>(null);
+  const [deletingStaff, setDeletingStaff] = useState(false);
+
+  const [resetTarget, setResetTarget] = useState<User | null>(null);
+  const [resetSecretInput, setResetSecretInput] = useState('1234');
+  const [resettingSecret, setResettingSecret] = useState(false);
+
+  const [changeSecretOpen, setChangeSecretOpen] = useState(false);
+  const [currentSecret, setCurrentSecret] = useState('');
+  const [newSecret, setNewSecret] = useState('');
+  const [confirmSecret, setConfirmSecret] = useState('');
+  const [changingSecret, setChangingSecret] = useState(false);
+  const [secretMsg, setSecretMsg] = useState<string | null>(null);
 
   const forecastQuery = useQuery({
     queryKey: ['forecast-overview'],
@@ -219,8 +307,13 @@ export function DashboardScreen() {
   );
 
   const handleCreateStaff = useCallback(async () => {
-    if (!newStaffUser.trim() || !newStaffSecret.trim()) {
-      setNotice('Nhập tên đăng nhập và mật khẩu cho nhân viên.');
+    const secretVal = newStaffSecret.trim() || '1234';
+    if (!newStaffUser.trim()) {
+      setNotice('Nhập tên đăng nhập cho nhân viên.');
+      return;
+    }
+    if (secretVal.length < 4) {
+      setNotice('Mật khẩu nhân viên tối thiểu 4 ký tự.');
       return;
     }
     setCreatingStaff(true);
@@ -228,15 +321,15 @@ export function DashboardScreen() {
       const created = await api.createStaff({
         username: newStaffUser.trim(),
         full_name: newStaffName.trim() || newStaffUser.trim(),
-        secret: newStaffSecret,
+        secret: secretVal,
         role: 'STAFF',
       });
       await triggerSuccessHaptic();
       setNewStaffUser('');
       setNewStaffName('');
-      setNewStaffSecret('');
+      setNewStaffSecret('1234');
       setStaffModalOpen(false);
-      setNotice(`Đã thêm nhân viên "@${created.username}".`);
+      setNotice(`Đã thêm nhân viên "@${created.username}" (mật khẩu mặc định: ${secretVal}).`);
       void queryClient.invalidateQueries({ queryKey: ['store-staff'] });
     } catch (err) {
       setNotice(err instanceof Error ? err.message : 'Không tạo được nhân viên.');
@@ -259,6 +352,72 @@ export function DashboardScreen() {
     [queryClient],
   );
 
+  const handleDeleteStaff = useCallback(
+    async (member: User) => {
+      setDeletingStaff(true);
+      try {
+        await api.deleteStaff(member.id);
+        await triggerSuccessHaptic();
+        setConfirmDeleteStaffId(null);
+        setNotice(`Đã xóa tài khoản nhân viên "@${member.username}".`);
+        void queryClient.invalidateQueries({ queryKey: ['store-staff'] });
+      } catch (err) {
+        setNotice(err instanceof Error ? err.message : 'Không xóa được nhân viên.');
+      } finally {
+        setDeletingStaff(false);
+      }
+    },
+    [queryClient],
+  );
+
+  const handleResetStaffSecret = useCallback(async () => {
+    if (!resetTarget) return;
+    const nextSec = resetSecretInput.trim() || '1234';
+    if (nextSec.length < 4) {
+      setNotice('Mật khẩu mới tối thiểu 4 ký tự.');
+      return;
+    }
+    setResettingSecret(true);
+    try {
+      await api.resetStaffSecret(resetTarget.id, nextSec);
+      await triggerSuccessHaptic();
+      const targetUsername = resetTarget.username;
+      setResetTarget(null);
+      setResetSecretInput('1234');
+      setNotice(`Đã đặt lại mật khẩu cho @${targetUsername} thành "${nextSec}".`);
+    } catch (err) {
+      setNotice(err instanceof Error ? err.message : 'Không đổi được mật khẩu nhân viên.');
+    } finally {
+      setResettingSecret(false);
+    }
+  }, [resetTarget, resetSecretInput]);
+
+  const handleChangeOwnSecret = useCallback(async () => {
+    setSecretMsg(null);
+    if (!currentSecret.trim() || newSecret.trim().length < 4) {
+      setSecretMsg('Nhập mật khẩu hiện tại và mật khẩu mới tối thiểu 4 ký tự.');
+      return;
+    }
+    if (newSecret !== confirmSecret) {
+      setSecretMsg('Mật khẩu mới nhập lại không khớp.');
+      return;
+    }
+    setChangingSecret(true);
+    try {
+      await api.changeSecret(currentSecret, newSecret);
+      await triggerSuccessHaptic();
+      setCurrentSecret('');
+      setNewSecret('');
+      setConfirmSecret('');
+      setChangeSecretOpen(false);
+      setNotice('Đã đổi mật khẩu tài khoản Chủ kho thành công.');
+    } catch (err) {
+      setSecretMsg(err instanceof Error ? err.message : 'Không đổi được mật khẩu.');
+    } finally {
+      setChangingSecret(false);
+    }
+  }, [currentSecret, newSecret, confirmSecret]);
+
   const overview = forecastQuery.data;
   const urgentItems = (overview?.items || []).filter((i) => i.status !== 'HEALTHY').slice(0, 4);
   const movementEventsCount =
@@ -276,10 +435,18 @@ export function DashboardScreen() {
       <StaffRow
         member={item}
         currentUserId={user?.id || 0}
+        confirmingDelete={confirmDeleteStaffId === item.id}
+        deletingStaff={deletingStaff}
         onToggleActive={(m, nextVal) => void handleToggleStaff(m, nextVal)}
+        onOpenResetSecret={(m) => {
+          setResetSecretInput('1234');
+          setResetTarget(m);
+        }}
+        onRequestDelete={(id) => setConfirmDeleteStaffId(id)}
+        onConfirmDelete={(m) => void handleDeleteStaff(m)}
       />
     ),
-    [user?.id, handleToggleStaff],
+    [user?.id, confirmDeleteStaffId, deletingStaff, handleToggleStaff, handleDeleteStaff],
   );
 
   const renderAlertItem = useCallback(
@@ -401,7 +568,10 @@ export function DashboardScreen() {
                 label="+ Thêm"
                 icon="person-add-outline"
                 variant="secondary"
-                onPress={() => setStaffModalOpen(true)}
+                onPress={() => {
+                  setNewStaffSecret('1234');
+                  setStaffModalOpen(true);
+                }}
               />
             </View>
             <FlatList
@@ -464,6 +634,19 @@ export function DashboardScreen() {
               onPress={() => void handleApplyTemplate('MAM_TEP')}
             />
           ) : null}
+
+          <ActionButton
+            label="Đổi mật khẩu tài khoản"
+            icon="key-outline"
+            variant="outline"
+            onPress={() => {
+              setSecretMsg(null);
+              setCurrentSecret('');
+              setNewSecret('');
+              setConfirmSecret('');
+              setChangeSecretOpen(true);
+            }}
+          />
 
           <ActionButton
             label={isDemoStore ? 'Thoát Demo' : 'Đăng xuất'}
@@ -569,12 +752,12 @@ export function DashboardScreen() {
                 { backgroundColor: theme.surfaceAlt, color: theme.text, borderColor: theme.border },
               ]}
             />
-            <Text style={[styles.subText, { color: theme.textMuted }]}>Mật khẩu *</Text>
+            <Text style={[styles.subText, { color: theme.textMuted }]}>Mật khẩu (mặc định: 1234)</Text>
             <TextInput
               value={newStaffSecret}
               onChangeText={setNewStaffSecret}
               secureTextEntry
-              placeholder="Tối thiểu 4 ký tự"
+              placeholder="Mặc định: 1234"
               placeholderTextColor={theme.textMuted}
               style={[
                 styles.input,
@@ -586,6 +769,144 @@ export function DashboardScreen() {
               icon="checkmark-circle-outline"
               loading={creatingStaff}
               onPress={() => void handleCreateStaff()}
+            />
+          </View>
+        </SafeAreaView>
+      </Modal>
+
+      <Modal
+        visible={Boolean(resetTarget)}
+        animationType="slide"
+        onRequestClose={() => setResetTarget(null)}
+      >
+        <SafeAreaView style={[styles.modalContainer, { backgroundColor: theme.bg }]}>
+          <View
+            style={[
+              styles.modalHeaderWrap,
+              { backgroundColor: theme.surface, borderBottomColor: theme.border },
+            ]}
+          >
+            <View style={styles.modalHeaderInner}>
+              <Text style={[styles.sectionTitle, { color: theme.text }]}>
+                Đổi mật khẩu @{resetTarget?.username}
+              </Text>
+              <Pressable
+                onPress={() => setResetTarget(null)}
+                accessibilityRole="button"
+                accessibilityLabel="Đóng đổi mật khẩu nhân viên"
+                android_ripple={{ color: theme.ripple }}
+                style={({ pressed }) => [
+                  styles.closeBtn,
+                  { backgroundColor: theme.surfaceAlt, opacity: pressed ? 0.75 : 1 },
+                ]}
+              >
+                <Ionicons name="close" size={22} color={theme.text} />
+              </Pressable>
+            </View>
+          </View>
+
+          <View style={styles.modalBody}>
+            <Text style={[styles.subText, { color: theme.textMuted }]}>
+              Mật khẩu mới cho {resetTarget?.full_name} (mặc định: 1234)
+            </Text>
+            <TextInput
+              value={resetSecretInput}
+              onChangeText={setResetSecretInput}
+              secureTextEntry
+              placeholder="Mặc định: 1234"
+              placeholderTextColor={theme.textMuted}
+              style={[
+                styles.input,
+                { backgroundColor: theme.surfaceAlt, color: theme.text, borderColor: theme.border },
+              ]}
+            />
+            <ActionButton
+              label="Đặt mật khẩu mặc định (1234)"
+              variant="outline"
+              onPress={() => setResetSecretInput('1234')}
+            />
+            <ActionButton
+              label="Lưu mật khẩu mới"
+              icon="checkmark-circle-outline"
+              loading={resettingSecret}
+              onPress={() => void handleResetStaffSecret()}
+            />
+          </View>
+        </SafeAreaView>
+      </Modal>
+
+      <Modal
+        visible={changeSecretOpen}
+        animationType="slide"
+        onRequestClose={() => setChangeSecretOpen(false)}
+      >
+        <SafeAreaView style={[styles.modalContainer, { backgroundColor: theme.bg }]}>
+          <View
+            style={[
+              styles.modalHeaderWrap,
+              { backgroundColor: theme.surface, borderBottomColor: theme.border },
+            ]}
+          >
+            <View style={styles.modalHeaderInner}>
+              <Text style={[styles.sectionTitle, { color: theme.text }]}>Đổi mật khẩu tài khoản</Text>
+              <Pressable
+                onPress={() => setChangeSecretOpen(false)}
+                accessibilityRole="button"
+                accessibilityLabel="Đóng đổi mật khẩu tài khoản"
+                android_ripple={{ color: theme.ripple }}
+                style={({ pressed }) => [
+                  styles.closeBtn,
+                  { backgroundColor: theme.surfaceAlt, opacity: pressed ? 0.75 : 1 },
+                ]}
+              >
+                <Ionicons name="close" size={22} color={theme.text} />
+              </Pressable>
+            </View>
+          </View>
+
+          <View style={styles.modalBody}>
+            <Text style={[styles.subText, { color: theme.textMuted }]}>Mật khẩu hiện tại *</Text>
+            <TextInput
+              value={currentSecret}
+              onChangeText={setCurrentSecret}
+              secureTextEntry
+              placeholder="Nhập mật khẩu hiện tại (hoặc 1234)"
+              placeholderTextColor={theme.textMuted}
+              style={[
+                styles.input,
+                { backgroundColor: theme.surfaceAlt, color: theme.text, borderColor: theme.border },
+              ]}
+            />
+            <Text style={[styles.subText, { color: theme.textMuted }]}>Mật khẩu mới *</Text>
+            <TextInput
+              value={newSecret}
+              onChangeText={setNewSecret}
+              secureTextEntry
+              placeholder="Tối thiểu 4 ký tự"
+              placeholderTextColor={theme.textMuted}
+              style={[
+                styles.input,
+                { backgroundColor: theme.surfaceAlt, color: theme.text, borderColor: theme.border },
+              ]}
+            />
+            <Text style={[styles.subText, { color: theme.textMuted }]}>Nhập lại mật khẩu mới *</Text>
+            <TextInput
+              value={confirmSecret}
+              onChangeText={setConfirmSecret}
+              secureTextEntry
+              placeholder="Nhập lại mật khẩu mới"
+              placeholderTextColor={theme.textMuted}
+              style={[
+                styles.input,
+                { backgroundColor: theme.surfaceAlt, color: theme.text, borderColor: theme.border },
+              ]}
+            />
+            {secretMsg ? <Text style={[styles.errText, { color: theme.danger }]}>{secretMsg}</Text> : null}
+            <ActionButton
+              label="Cập nhật mật khẩu"
+              icon="checkmark-circle-outline"
+              loading={changingSecret}
+              onPress={() => void handleChangeOwnSecret()}
             />
           </View>
         </SafeAreaView>
@@ -686,14 +1007,40 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     gap: SPACING.sm,
   },
-  staffItem: {
+  staffItemWrap: {
     borderRadius: RADIUS.md,
     borderWidth: 1,
     padding: SPACING.md,
+    gap: SPACING.sm,
+  },
+  staffTopRow: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
     gap: SPACING.sm,
+  },
+  staffControls: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: SPACING.xs,
+  },
+  staffIconBtn: {
+    minWidth: TOUCH_MIN,
+    minHeight: TOUCH_MIN,
+    borderRadius: RADIUS.md,
+    borderWidth: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  staffConfirmBox: {
+    borderRadius: RADIUS.md,
+    borderWidth: 1,
+    padding: SPACING.md,
+    gap: SPACING.sm,
+  },
+  errText: {
+    fontSize: 13,
+    fontWeight: '500',
   },
   modalContainer: { flex: 1 },
   modalHeaderWrap: { borderBottomWidth: 1 },

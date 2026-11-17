@@ -30,6 +30,7 @@ def serialize_movement(db: Session, movement: StockMovement) -> StockMovementOut
         is not None
     )
     balance_before = round(movement.balance_after - movement.quantity_delta, 3)
+    clean_username = actor.username.split("__DEL_")[0] if (actor and actor.username) else None
     return StockMovementOut(
         id=movement.id,
         store_id=movement.store_id,
@@ -38,7 +39,7 @@ def serialize_movement(db: Session, movement: StockMovement) -> StockMovementOut
         product_unit=product.unit if product else None,
         user_id=movement.user_id,
         user_name=actor.full_name if actor else None,
-        user_username=actor.username if actor else None,
+        user_username=clean_username,
         user_role=actor.role if actor else None,
         movement_type=movement.movement_type,
         quantity_delta=movement.quantity_delta,

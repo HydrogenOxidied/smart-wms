@@ -43,9 +43,9 @@ export function LoginScreen() {
   const [newStoreName, setNewStoreName] = useState('');
   const [newMgrUser, setNewMgrUser] = useState('');
   const [newMgrName, setNewMgrName] = useState('');
-  const [newMgrSecret, setNewMgrSecret] = useState('');
+  const [newMgrSecret, setNewMgrSecret] = useState('1234');
   const [newStaffUser, setNewStaffUser] = useState('');
-  const [newStaffSecret, setNewStaffSecret] = useState('');
+  const [newStaffSecret, setNewStaffSecret] = useState('1234');
   const [selectedTemplate, setSelectedTemplate] = useState<TemplateKey>('EMPTY');
 
   useEffect(() => {
@@ -97,8 +97,14 @@ export function LoginScreen() {
 
   const handleRegister = useCallback(async () => {
     setErrorMsg(null);
-    if (!newStoreName.trim() || !newMgrUser.trim() || !newMgrSecret.trim()) {
-      setErrorMsg('Vui lòng nhập Tên cửa hàng, Tài khoản Quản lý và Mật khẩu.');
+    const mgrSec = newMgrSecret.trim() || '1234';
+    const staffSec = newStaffSecret.trim() || '1234';
+    if (!newStoreName.trim() || !newMgrUser.trim()) {
+      setErrorMsg('Vui lòng nhập Tên cửa hàng và Tài khoản Chủ kho.');
+      return;
+    }
+    if (mgrSec.length < 4 || (newStaffUser.trim() && staffSec.length < 4)) {
+      setErrorMsg('Mật khẩu tối thiểu 4 ký tự.');
       return;
     }
     try {
@@ -106,9 +112,9 @@ export function LoginScreen() {
         store_name: newStoreName.trim(),
         manager_username: newMgrUser.trim(),
         manager_full_name: newMgrName.trim() || newMgrUser.trim(),
-        manager_secret: newMgrSecret,
+        manager_secret: mgrSec,
         staff_username: newStaffUser.trim() || undefined,
-        staff_secret: newStaffSecret || undefined,
+        staff_secret: newStaffUser.trim() ? staffSec : undefined,
         industry_template: selectedTemplate,
         lite_mode: true,
       });
@@ -193,6 +199,8 @@ export function LoginScreen() {
               variant="outline"
               onPress={() => {
                 setErrorMsg(null);
+                setNewMgrSecret('1234');
+                setNewStaffSecret('1234');
                 setRegisterModal(true);
               }}
             />
@@ -347,12 +355,14 @@ export function LoginScreen() {
         </View>
 
         <View style={styles.fieldGroup}>
-          <Text style={[styles.fieldLabel, { color: theme.textMuted }]}>Mật khẩu Chủ kho *</Text>
+          <Text style={[styles.fieldLabel, { color: theme.textMuted }]}>
+            Mật khẩu Chủ kho (mặc định: 1234)
+          </Text>
           <TextInput
             value={newMgrSecret}
             onChangeText={setNewMgrSecret}
             secureTextEntry
-            placeholder="Tối thiểu 4 ký tự"
+            placeholder="Mặc định: 1234"
             placeholderTextColor={theme.textMuted}
             style={[
               styles.input,
@@ -380,7 +390,7 @@ export function LoginScreen() {
             value={newStaffSecret}
             onChangeText={setNewStaffSecret}
             secureTextEntry
-            placeholder="Mật khẩu nhân viên"
+            placeholder="Mật khẩu nhân viên (mặc định: 1234)"
             placeholderTextColor={theme.textMuted}
             style={[
               styles.input,

@@ -6,6 +6,7 @@ from pydantic import BaseModel, ConfigDict, Field
 
 RoleType = Literal["MANAGER", "STAFF"]
 TrackingType = Literal["STANDARD", "PACK_BREAK", "CONSUMABLE"]
+DEFAULT_ACCOUNT_SECRET = "1234"
 MovementType = Literal[
     "IN_PURCHASE",
     "OUT_CONSUMPTION",
@@ -23,7 +24,7 @@ class StaffCreateRequest(BaseModel):
 
     username: str = Field(min_length=3, max_length=64)
     full_name: str = Field(min_length=2, max_length=120)
-    secret: str = Field(min_length=4, max_length=128)
+    secret: str = Field(default=DEFAULT_ACCOUNT_SECRET, min_length=4, max_length=128)
     role: RoleType = "STAFF"
 
 
@@ -31,6 +32,19 @@ class StaffStatusUpdate(BaseModel):
     """Activate or lock a store staff account."""
 
     is_active: bool
+
+
+class ChangeSecretRequest(BaseModel):
+    """Authenticated user changes their own account secret."""
+
+    current_secret: str = Field(min_length=3, max_length=128)
+    new_secret: str = Field(min_length=4, max_length=128)
+
+
+class StaffSecretResetRequest(BaseModel):
+    """Manager resets a staff member's secret (defaults to 1234)."""
+
+    new_secret: str = Field(default=DEFAULT_ACCOUNT_SECRET, min_length=4, max_length=128)
 
 
 class StoreOut(BaseModel):
@@ -81,9 +95,9 @@ class RegisterStoreRequest(BaseModel):
     store_name: str = Field(min_length=2, max_length=120)
     manager_username: str = Field(min_length=3, max_length=64)
     manager_full_name: str = Field(min_length=2, max_length=120)
-    manager_secret: str = Field(min_length=4, max_length=128)
+    manager_secret: str = Field(default=DEFAULT_ACCOUNT_SECRET, min_length=4, max_length=128)
     staff_username: str | None = Field(default=None, min_length=3, max_length=64)
-    staff_secret: str | None = Field(default=None, min_length=4, max_length=128)
+    staff_secret: str | None = Field(default=DEFAULT_ACCOUNT_SECRET, min_length=4, max_length=128)
     industry_template: TemplateKey = "CAFE_BAKERY"
     lite_mode: bool = True
 

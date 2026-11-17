@@ -12,7 +12,9 @@ from app.core.database import get_db
 from app.core.security import create_access_token, get_current_user, hash_secret, verify_secret
 from app.models.entities import Store, User
 from app.schemas.api import (
+    DEFAULT_ACCOUNT_SECRET,
     AuthResponse,
+    ChangeSecretRequest,
     LoginRequest,
     RegisterStoreRequest,
     StoreOut,
@@ -104,23 +106,25 @@ def register_store(
     db.add(store)
     db.flush()
 
+    mgr_raw_secret = payload.manager_secret or DEFAULT_ACCOUNT_SECRET
     manager = User(
         store_id=store.id,
         username=mgr_username,
         full_name=payload.manager_full_name.strip(),
-        hashed_secret=hash_secret(payload.manager_secret),
+        hashed_secret=hash_secret(mgr_raw_secret),
         role="MANAGER",
     )
     db.add(manager)
     db.flush()
 
-    if staff_username and payload.staff_secret:
+    if staff_username:
+        staff_raw_secret = payload.staff_secret or DEFAULT_ACCOUNT_SECRET
         db.add(
             User(
                 store_id=store.id,
                 username=staff_username,
                 full_name=f"Nhân viên ({staff_username})",
-                hashed_secret=hash_secret(payload.staff_secret),
+                hashed_secret=hash_secret(staff_raw_secret),
                 role="STAFF",
             )
         )
@@ -153,3 +157,20 @@ def get_me(
         user=UserOut.model_validate(current_user),
         store=StoreOut.model_validate(store),
     )
+
+
+@router.post("/change-secret", status_code=status.HTTP_200_OK)
+def change_my_secret(
+    payload: ChangeSecretRequest,
+    current_user: Annotated[User, Depends(get_current_user)],
+    db: Annotated[Session, Depends(get_db)],
+) -> dict[str, str]:
+    """Allow any authenticated manager or staff user to change their own password."""
+    if not verify_secret(payload.current_secret, current_user.hashed_secret):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Mật khẩu hiện tại không chính xác.",
+        )
+    current_user.hashed_secret = hash_secret(payload.new_secret)
+    db.commit()
+    return {"status": "updated", "message": "Đã đổi mật khẩu thành công."}

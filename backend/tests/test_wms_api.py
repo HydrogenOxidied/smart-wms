@@ -708,3 +708,115 @@ def test_lazy_demo_seed_on_empty_db_and_deleted_product_excluded_from_audit(tmp_
         assert demo_res.status_code == 200, demo_res.text
         assert demo_res.json()["store"]["code"] == "MOC_BAKERY"
         assert demo_res.json()["user"]["username"] != "manager"
+
+
+def test_default_secret_1234_change_secret_and_delete_staff(client_and_db):
+    client, _ = client_and_db
+
+    # 1. Register store omitting manager_secret & staff_secret -> defaults to "1234"
+    reg = client.post(
+        "/api/v1/auth/register-store",
+        json={
+            "store_name": "Shop Mặc Định 1234",
+            "manager_username": "chu_1234",
+            "manager_full_name": "Chủ 1234",
+            "staff_username": "nv_1234",
+            "industry_template": "EMPTY",
+            "lite_mode": True,
+        },
+    )
+    assert reg.status_code == 201, reg.text
+    mgr_id = reg.json()["user"]["id"]
+    mgr_headers = {"Authorization": f"Bearer {reg.json()['access_token']}"}
+
+    mgr_login = client.post("/api/v1/auth/login", json={"username": "chu_1234", "secret": "1234"})
+    assert mgr_login.status_code == 200
+
+    nv_login = client.post("/api/v1/auth/login", json={"username": "nv_1234", "secret": "1234"})
+    assert nv_login.status_code == 200
+    nv_id = nv_login.json()["user"]["id"]
+    nv_headers = {"Authorization": f"Bearer {nv_login.json()['access_token']}"}
+
+    # 2. Manager creates another staff omitting secret -> defaults to "1234"
+    nv_phu = client.post(
+        "/api/v1/store/staff",
+        json={"username": "nv_phu", "full_name": "Nhân viên Phụ", "role": "STAFF"},
+        headers=mgr_headers,
+    )
+    assert nv_phu.status_code == 201, nv_phu.text
+    nv_phu_id = nv_phu.json()["id"]
+    assert client.post("/api/v1/auth/login", json={"username": "nv_phu", "secret": "1234"}).status_code == 200
+
+    # 3. Staff changes own secret (wrong current fails 400, valid succeeds 200)
+    wrong_chg = client.post(
+        "/api/v1/auth/change-secret",
+        json={"current_secret": "9999", "new_secret": "SAMPLE_NewPass88!"},
+        headers=nv_headers,
+    )
+    assert wrong_chg.status_code == 400
+
+    ok_chg = client.post(
+        "/api/v1/auth/change-secret",
+        json={"current_secret": "1234", "new_secret": "SAMPLE_NewPass88!"},
+        headers=nv_headers,
+    )
+    assert ok_chg.status_code == 200
+    assert client.post("/api/v1/auth/login", json={"username": "nv_1234", "secret": "1234"}).status_code == 401
+    assert (
+        client.post(
+            "/api/v1/auth/login",
+            json={"username": "nv_1234", "secret": "SAMPLE_NewPass88!"},
+        ).status_code
+        == 200
+    )
+
+    # 4. Manager resets nv_1234 back to 1234
+    reset_res = client.patch(
+        f"/api/v1/store/staff/{nv_id}/secret",
+        json={"new_secret": "1234"},
+        headers=mgr_headers,
+    )
+    assert reset_res.status_code == 200
+    assert client.post("/api/v1/auth/login", json={"username": "nv_1234", "secret": "1234"}).status_code == 200
+
+    # 5. Record movement as nv_1234, then delete nv_1234 (with history) & nv_phu (without history)
+    prod = client.post(
+        "/api/v1/products",
+        json={"name": "Mắm tép hộp 500g", "unit": "Hộp", "current_stock": 20},
+        headers=mgr_headers,
+    ).json()
+    mv = client.post(
+        "/api/v1/movements",
+        json={
+            "product_id": prod["id"],
+            "movement_type": "OUT_CONSUMPTION",
+            "quantity": 3,
+            "unit_mode": "BASE",
+            "idempotency_key": str(uuid.uuid4()),
+        },
+        headers=nv_headers,
+    )
+    assert mv.status_code == 201
+
+    assert client.delete(f"/api/v1/store/staff/{mgr_id}", headers=mgr_headers).status_code == 400
+    assert client.delete(f"/api/v1/store/staff/{nv_id}", headers=mgr_headers).status_code == 200
+    assert client.delete(f"/api/v1/store/staff/{nv_phu_id}", headers=mgr_headers).status_code == 200
+
+    # 6. Deleted staff hidden, old token/login rejected, username freed, audit history preserved
+    remaining_staff = client.get("/api/v1/store/staff", headers=mgr_headers).json()
+    assert [u["username"] for u in remaining_staff] == ["chu_1234"]
+    assert client.get("/api/v1/auth/me", headers=nv_headers).status_code == 401
+    assert client.post("/api/v1/auth/login", json={"username": "nv_1234", "secret": "1234"}).status_code == 401
+
+    recreated = client.post(
+        "/api/v1/store/staff",
+        json={"username": "nv_1234", "full_name": "NV Mới Cùng Tên"},
+        headers=mgr_headers,
+    )
+    assert recreated.status_code == 201
+
+    summary = client.get("/api/v1/movements/summary", headers=mgr_headers).json()
+    assert summary["staff_consumed_total"] == pytest.approx(3.0)
+    mvs = client.get("/api/v1/movements", headers=mgr_headers).json()
+    staff_mv = next(m for m in mvs if m["id"] == mv.json()["id"])
+    assert staff_mv["user_username"] == "nv_1234"
