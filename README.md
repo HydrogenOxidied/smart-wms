@@ -1,12 +1,12 @@
 # PocketWMS (KhoThôngMinh) — Hệ thống Quản lý Kho Di động & Dự báo Nhu cầu Nhập hàng
 
-Đề tài Khóa luận Tốt nghiệp: **Xây dựng hệ thống Quản lý Kho & Tồn kho Thông minh tập trung trên thiết bị di động (Mobile-First WMS)** hỗ trợ cả cửa hàng nhỏ ít mặt hàng (**Lite Mode / Vật tư nhỏ lẻ**) lẫn vận hành kho chuyên nghiệp (**Barcode Scanner / Kiểm kê mù / Offline Sync Queue**), kết hợp **Sổ cái tồn kho bất biến (Immutable Stock Ledger)** và **AI Dự báo nhu cầu nhập hàng 3 tầng**.
+Đề tài Khóa luận Tốt nghiệp: **Xây dựng hệ thống Quản lý Kho & Tồn kho Thông minh tập trung trên thiết bị di động (Mobile-First WMS)** hỗ trợ cả cửa hàng nhỏ ít mặt hàng (**Lite Mode / Vật tư nhỏ lẻ**) lẫn vận hành kho chuyên nghiệp (**Barcode Scanner / Kiểm kê mù / Web PWA 4G**), kết hợp **Sổ cái tồn kho bất biến (Immutable Stock Ledger)** và **AI Dự báo nhu cầu nhập hàng 3 tầng**.
 
 ---
 
 ## 1. Kiến trúc Hệ thống
 
-- **Mobile Client (`mobile/`)**: React Native + Expo (TypeScript), TanStack Query, Zustand, `expo-camera` (quét mã vạch liên hoàn), `expo-secure-store` (lưu JWT an toàn trên iOS/Android), `AsyncStorage` (hàng đợi Offline-First Sync FIFO), hỗ trợ cả **Light Mode** & **OLED Dark Mode** theo [`DESIGN.md`](./DESIGN.md).
+- **Mobile & Web App (`mobile/`)**: React Native + Expo (TypeScript), TanStack Query, Zustand, `expo-camera` (quét mã vạch liên hoàn), `expo-secure-store` (lưu JWT an toàn trên iOS/Android/Web), hỗ trợ cả **Light Mode** & **OLED Dark Mode** theo [`DESIGN.md`](./DESIGN.md).
 - **Backend & AI Forecasting (`backend/`)**: Python 3.12 + FastAPI + SQLAlchemy 2.0 + NumPy + SQLite ACID (`WAL` mode + `PRAGMA foreign_keys=ON`), có thể chuyển sang PostgreSQL (Neon/Supabase) chỉ bằng 1 dòng `WMS_DATABASE_URL` trong `.env`.
 
 ### Ba điểm nhấn kỹ thuật ăn điểm trước Hội đồng

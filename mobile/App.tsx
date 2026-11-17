@@ -20,7 +20,6 @@ import { InventoryScreen } from './src/screens/InventoryScreen';
 import { LoginScreen } from './src/screens/LoginScreen';
 import { StocktakeScreen } from './src/screens/StocktakeScreen';
 import { useAuthStore } from './src/store/authStore';
-import { useOfflineQueueStore } from './src/store/offlineQueueStore';
 import { TabKey, useUiStore } from './src/store/uiStore';
 import { SPACING, TOUCH_MIN } from './src/theme/tokens';
 import { useTheme } from './src/theme/useTheme';
@@ -91,13 +90,11 @@ const BottomTabButton = React.memo(
 function RootShell() {
   const theme = useTheme();
   const { isHydrated, user, store, hydrate } = useAuthStore();
-  const { pending, hydrateQueue } = useOfflineQueueStore();
   const { activeTab, setActiveTab } = useUiStore();
 
   useEffect(() => {
     void hydrate();
-    void hydrateQueue();
-  }, [hydrate, hydrateQueue]);
+  }, [hydrate]);
 
   useEffect(() => {
     queryClient.clear();
@@ -160,9 +157,6 @@ function RootShell() {
             </Text>
           </View>
           <View style={styles.headerBadges}>
-            {pending.length > 0 ? (
-              <StatusPill text={`Offline: ${pending.length}`} tone="warning" />
-            ) : null}
             <StatusPill
               text={user.role === 'MANAGER' ? 'Chủ kho' : 'Nhân viên'}
               tone={user.role === 'MANAGER' ? 'primary' : 'secondary'}

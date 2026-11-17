@@ -16,7 +16,6 @@ import {
 } from '../components/CommonUI';
 import { api } from '../services/apiClient';
 import { useAuthStore } from '../store/authStore';
-import { useOfflineQueueStore } from '../store/offlineQueueStore';
 import { ThemePreference, useUiStore } from '../store/uiStore';
 import { RADIUS, SPACING, TOUCH_MIN } from '../theme/tokens';
 import { useTheme } from '../theme/useTheme';
@@ -31,23 +30,13 @@ const THEME_OPTIONS: ChipOption[] = [
 export function AccountScreen() {
   const theme = useTheme();
   const { user, store, logout } = useAuthStore();
-  const { pending, isSyncing, lastSyncMessage, flushQueue } = useOfflineQueueStore();
   const { themePref, setThemePref } = useUiStore();
-  const [syncNotice, setSyncNotice] = useState<string | null>(null);
 
   const [currentSecret, setCurrentSecret] = useState('');
   const [newSecret, setNewSecret] = useState('');
   const [confirmSecret, setConfirmSecret] = useState('');
   const [changingSecret, setChangingSecret] = useState(false);
   const [secretStatus, setSecretStatus] = useState<{ ok: boolean; text: string } | null>(null);
-
-  const handleSync = useCallback(async () => {
-    const count = await flushQueue();
-    if (count > 0) {
-      await triggerSuccessHaptic();
-    }
-    setSyncNotice(count > 0 ? `Đã đồng bộ ${count} giao dịch.` : 'Chưa có dữ liệu chờ hoặc mất mạng.');
-  }, [flushQueue]);
 
   const handleChangeSecret = useCallback(async () => {
     setSecretStatus(null);
@@ -77,7 +66,7 @@ export function AccountScreen() {
     }
   }, [currentSecret, newSecret, confirmSecret]);
 
-  const blocks = ['profile', 'security', 'sync', 'theme'];
+  const blocks = ['profile', 'security', 'theme'];
 
   const renderBlock = useCallback(
     ({ item }: { item: string }) => {
@@ -157,34 +146,6 @@ export function AccountScreen() {
         );
       }
 
-      if (item === 'sync') {
-        return (
-          <View style={[styles.card, { backgroundColor: theme.surface, borderColor: theme.border }]}>
-            <View style={styles.rowBetween}>
-              <Text style={[styles.title, { color: theme.text }]}>Đồng bộ Offline</Text>
-              <StatusPill
-                text={pending.length > 0 ? `${pending.length} chờ gửi` : 'Đã đồng bộ'}
-                tone={pending.length > 0 ? 'warning' : 'primary'}
-              />
-            </View>
-            {syncNotice || lastSyncMessage ? (
-              <Text style={[styles.subText, { color: theme.secondary }]}>
-                {syncNotice || lastSyncMessage}
-              </Text>
-            ) : null}
-            {pending.length > 0 ? (
-              <ActionButton
-                label={`Đồng bộ ngay (${pending.length})`}
-                icon="cloud-upload-outline"
-                variant="secondary"
-                loading={isSyncing}
-                onPress={() => void handleSync()}
-              />
-            ) : null}
-          </View>
-        );
-      }
-
       return (
         <View style={[styles.card, { backgroundColor: theme.surface, borderColor: theme.border }]}>
           <Text style={[styles.title, { color: theme.text }]}>Giao diện</Text>
@@ -207,11 +168,6 @@ export function AccountScreen() {
       secretStatus,
       changingSecret,
       handleChangeSecret,
-      pending.length,
-      syncNotice,
-      lastSyncMessage,
-      isSyncing,
-      handleSync,
       themePref,
       setThemePref,
     ],

@@ -18,9 +18,8 @@ import {
   SegmentedToggle,
   StatusPill,
 } from '../components/CommonUI';
-import { ApiHttpError, api, isOfflineNetworkError } from '../services/apiClient';
+import { ApiHttpError, api } from '../services/apiClient';
 import { useAuthStore } from '../store/authStore';
-import { useOfflineQueueStore } from '../store/offlineQueueStore';
 import { useUiStore } from '../store/uiStore';
 import { RADIUS, SPACING, TOUCH_MIN } from '../theme/tokens';
 import { useTheme } from '../theme/useTheme';
@@ -125,7 +124,6 @@ export function ConsumptionScreen() {
   const isManager = user?.role === 'MANAGER';
   const setActiveTab = useUiStore((s) => s.setActiveTab);
   const focusedMovementProductId = useUiStore((s) => s.focusedMovementProductId);
-  const { pending, enqueueMovement, flushQueue } = useOfflineQueueStore();
 
   const [mode, setMode] = useState<ActionMode>('out_single');
   const [productSearch, setProductSearch] = useState('');
@@ -323,17 +321,12 @@ export function ConsumptionScreen() {
           setAnomalyPending({ message: err.message, payload });
           return;
         }
-        if (isOfflineNetworkError(err)) {
-          await enqueueMovement(product.name, product.unit, payload);
-          setStatusMsg(`Offline: Đã xếp hàng đợi giao dịch "${product.name}".`);
-          return;
-        }
         setStatusMsg(err instanceof Error ? err.message : 'Lỗi ghi nhận giao dịch.');
       } finally {
         setSubmitting(false);
       }
     },
-    [enqueueMovement, refreshAll],
+    [refreshAll],
   );
 
   const handleSingleSubmit = useCallback(() => {
@@ -422,20 +415,11 @@ export function ConsumptionScreen() {
       setShowAuditLink(true);
       refreshAll();
     } catch (err) {
-      if (isOfflineNetworkError(err)) {
-        for (const item of batchItems) {
-          const prod = products.find((p) => p.id === item.product_id);
-          await enqueueMovement(prod?.name || `SP #${item.product_id}`, prod?.unit || 'ĐV', item);
-        }
-        setShiftQuantities({});
-        setStatusMsg(`Offline: Đã xếp ${batchItems.length} dòng chốt ca vào hàng đợi.`);
-      } else {
-        setStatusMsg(err instanceof Error ? err.message : 'Lỗi chốt ca.');
-      }
+      setStatusMsg(err instanceof Error ? err.message : 'Lỗi chốt ca.');
     } finally {
       setSubmitting(false);
     }
-  }, [shiftQuantities, products, enqueueMovement, refreshAll]);
+  }, [shiftQuantities, refreshAll]);
 
   const renderSingleForm = useCallback(
     ({ item }: { item: string }) => {
@@ -812,14 +796,6 @@ export function ConsumptionScreen() {
             }
           }}
         />
-        {pending.length > 0 ? (
-          <ActionButton
-            label={`Đồng bộ ${pending.length} giao dịch Offline`}
-            variant="warning"
-            icon="cloud-upload-outline"
-            onPress={() => void flushQueue().then(refreshAll)}
-          />
-        ) : null}
         {statusMsg ? (
           <View style={[styles.statusBox, { backgroundColor: theme.primarySoft, borderColor: theme.primary }]}>
             <Text style={[styles.statusMsg, { color: theme.text }]}>{statusMsg}</Text>

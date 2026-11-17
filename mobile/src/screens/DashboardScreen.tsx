@@ -24,7 +24,6 @@ import {
 } from '../components/CommonUI';
 import { api } from '../services/apiClient';
 import { useAuthStore } from '../store/authStore';
-import { useOfflineQueueStore } from '../store/offlineQueueStore';
 import { ThemePreference, useUiStore } from '../store/uiStore';
 import { RADIUS, SPACING, TOUCH_MIN } from '../theme/tokens';
 import { useTheme } from '../theme/useTheme';
@@ -198,7 +197,6 @@ export function DashboardScreen() {
   const theme = useTheme();
   const queryClient = useQueryClient();
   const { user, store, setStore, logout } = useAuthStore();
-  const { pending, flushQueue, isSyncing } = useOfflineQueueStore();
   const { setActiveTab, openForecastForProduct, themePref, setThemePref } = useUiStore();
   const [notice, setNotice] = useState<string | null>(null);
   const [importing, setImporting] = useState(false);
@@ -490,16 +488,6 @@ export function DashboardScreen() {
       if (item === 'kpis') {
         return (
           <View style={styles.sectionBlock}>
-            {pending.length > 0 ? (
-              <ActionButton
-                label={`Đồng bộ ${pending.length} thao tác Offline`}
-                icon="cloud-upload-outline"
-                variant="warning"
-                loading={isSyncing}
-                onPress={() => void flushQueue()}
-              />
-            ) : null}
-
             {notice ? (
               <Text style={[styles.noticeText, { color: theme.secondary }]}>{notice}</Text>
             ) : null}
@@ -714,9 +702,6 @@ export function DashboardScreen() {
       theme,
       store,
       isDemoStore,
-      pending.length,
-      isSyncing,
-      flushQueue,
       notice,
       totalProducts,
       overview,

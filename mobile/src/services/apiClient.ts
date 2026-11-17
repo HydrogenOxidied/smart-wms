@@ -82,13 +82,6 @@ export class ApiHttpError extends Error {
   }
 }
 
-export function isOfflineNetworkError(err: unknown): boolean {
-  if (err instanceof ApiHttpError) {
-    return false;
-  }
-  return err instanceof TypeError || (err instanceof Error && /network|fetch|timeout|failed/i.test(err.message));
-}
-
 async function requestJson<T>(
   path: string,
   options: RequestInit = {},
@@ -109,10 +102,15 @@ async function requestJson<T>(
     }
   }
 
-  const response = await fetch(`${activeBaseUrl}${path}`, {
-    ...options,
-    headers,
-  });
+  let response: Response;
+  try {
+    response = await fetch(`${activeBaseUrl}${path}`, {
+      ...options,
+      headers,
+    });
+  } catch {
+    throw new Error('Không kết nối được máy chủ. Vui lòng kiểm tra mạng hoặc bật lại Server.');
+  }
 
   if (!response.ok) {
     let payload: unknown = null;
