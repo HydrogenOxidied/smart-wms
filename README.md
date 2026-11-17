@@ -30,11 +30,13 @@
 
 ## 2. Chạy thử & Vận hành trên Windows
 
-### Bộ khởi động gọn (4 file tại thư mục gốc)
-- **`start-wms.bat`**: Bấm đúp để khởi động ngầm Backend (cổng `8000`) + Cloudflare Tunnel truy cập **4G / khác Wi-Fi**, tự copy link `https://...trycloudflare.com` vào clipboard (đóng cửa sổ xong vẫn chạy ngầm).
-- **`status-wms.bat`**: Kiểm tra trạng thái Backend/Tunnel, xem RAM, IP LAN và lấy lại (tự copy) link 4G đang chạy.
-- **`stop-wms.bat`**: Dừng cả Backend và Cloudflare Tunnel.
-- **`install-autostart.bat`**: Cài đặt tự khởi động ngầm (`scripts\start-hidden.vbs`) cùng Windows (chạy 1 lần duy nhất).
+### Khởi động & Quản lý chỉ bằng 1 file duy nhất (`start-wms.bat`)
+- **`start-wms.bat`**: Bấm đúp để tự động bật ngầm Backend (cổng `8000`) + Cloudflare Tunnel truy cập **4G / khác Wi-Fi**, tự copy link `https://...trycloudflare.com` vào clipboard, và hiển thị menu thao tác nhanh ngay trong 1 cửa sổ:
+  - **`[Enter]`**: Đóng cửa sổ (Backend + Tunnel 4G tiếp tục chạy ngầm).
+  - **`[1]`**: Bật lại / Cấp mới link 4G.
+  - **`[2]`**: Tắt toàn bộ Backend & Tunnel 4G.
+  - **`[3]`**: Bật / Tắt tự khởi động ngầm cùng Windows (qua `scripts\start-hidden.vbs`).
+- Hỗ trợ chạy nhanh qua dòng lệnh: `start-wms.bat status`, `start-wms.bat stop`, `start-wms.bat restart-tunnel`, `start-wms.bat install-autostart`.
 
 *(Để phát triển frontend Expo Metro cục bộ, chạy `npx expo start` trong thư mục `mobile/`.)*
 
