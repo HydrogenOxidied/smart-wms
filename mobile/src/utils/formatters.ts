@@ -17,8 +17,16 @@ export function formatNumber(val: number): string {
   return Number(val.toFixed(2)).toLocaleString('vi-VN');
 }
 
+export function parseUtcDate(iso: string): Date {
+  const trimmed = iso.trim();
+  const hasTz = /[zZ]|[+-]\d{2}:?\d{2}$/.test(trimmed);
+  const normalized = hasTz ? trimmed : `${trimmed.replace(' ', 'T')}Z`;
+  return new Date(normalized);
+}
+
 export function formatShortDate(iso: string): string {
-  const d = new Date(iso);
+  if (!iso) return '';
+  const d = parseUtcDate(iso);
   if (Number.isNaN(d.getTime())) {
     return iso;
   }

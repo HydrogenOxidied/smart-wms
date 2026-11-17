@@ -1,10 +1,24 @@
 """Pydantic v2 request and response schemas for PocketWMS."""
-from datetime import datetime
-from typing import Literal
+from datetime import datetime, timezone
+from typing import Annotated, Literal
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, PlainSerializer
 
 RoleType = Literal["MANAGER", "STAFF"]
+
+
+def _serialize_utc_datetime(dt: datetime) -> str:
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=timezone.utc)
+    else:
+        dt = dt.astimezone(timezone.utc)
+    return dt.isoformat().replace("+00:00", "Z")
+
+
+UtcDatetime = Annotated[
+    datetime,
+    PlainSerializer(_serialize_utc_datetime, return_type=str, when_used="json"),
+]
 TrackingType = Literal["STANDARD", "PACK_BREAK", "CONSUMABLE"]
 DEFAULT_ACCOUNT_SECRET = "1234"
 MovementType = Literal[
@@ -58,7 +72,7 @@ class StoreOut(BaseModel):
     industry_template: str
     lite_mode: bool
     allow_negative_stock: bool
-    created_at: datetime
+    created_at: UtcDatetime
 
 
 class StoreSettingsUpdate(BaseModel):
@@ -177,7 +191,7 @@ class ProductOut(BaseModel):
     supplier_name: str | None
     is_pinned: bool
     is_active: bool
-    updated_at: datetime
+    updated_at: UtcDatetime
 
 
 class DuplicateWarningItem(BaseModel):
@@ -248,8 +262,8 @@ class StockMovementOut(BaseModel):
     idempotency_key: str
     reversed_movement_id: int | None
     is_reversed: bool = False
-    occurred_at: datetime
-    created_at: datetime
+    occurred_at: UtcDatetime
+    created_at: UtcDatetime
 
 
 class BatchMovementResponse(BaseModel):
@@ -273,7 +287,7 @@ class ProductAuditSummaryOut(BaseModel):
     staff_consumed_count: int
     manager_consumed_qty: float
     total_consumed_qty: float
-    last_modified_at: datetime | None = None
+    last_modified_at: UtcDatetime | None = None
 
 
 class LedgerAuditSummaryOut(BaseModel):
@@ -338,7 +352,7 @@ class StocktakeItemOut(BaseModel):
     gauge_percent: float | None
     treat_negative_variance_as_consumption: bool
     note: str | None
-    scanned_at: datetime
+    scanned_at: UtcDatetime
 
 
 class StocktakeSessionOut(BaseModel):
@@ -351,9 +365,9 @@ class StocktakeSessionOut(BaseModel):
     is_blind: bool
     created_by_id: int
     approved_by_id: int | None
-    created_at: datetime
-    submitted_at: datetime | None
-    approved_at: datetime | None
+    created_at: UtcDatetime
+    submitted_at: UtcDatetime | None
+    approved_at: UtcDatetime | None
     items: list[StocktakeItemOut]
 
 

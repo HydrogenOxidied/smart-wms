@@ -158,7 +158,8 @@ const LedgerRow = React.memo(({ item }: { item: StockMovement }) => {
       </View>
       <Text style={[styles.subInfo, { color: theme.textMuted }]}>
         Trước: {formatNumber(beforeQty)} → Còn: {formatNumber(item.balance_after)} ·{' '}
-        {formatShortDate(item.occurred_at)} · {item.user_name || 'Hệ thống'}
+        {formatShortDate(item.movement_type === 'REVERSAL' ? item.created_at : item.occurred_at)} ·{' '}
+        {item.user_name || 'Hệ thống'}
       </Text>
       {item.note ? (
         <Text style={[styles.subInfo, { color: theme.textMuted }]}>{item.note}</Text>

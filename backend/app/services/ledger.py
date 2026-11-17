@@ -1,5 +1,5 @@
 """Immutable append-only stock ledger with idempotency, anomaly guard, and 15m reversal."""
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 import math
 from typing import Any
 
@@ -170,7 +170,14 @@ def record_movement(
     product.current_stock = new_balance
     _sync_sealed_packs(product, payload.movement_type, payload.unit_mode, payload.quantity)
 
-    occurred = payload.occurred_at.replace(tzinfo=None) if payload.occurred_at else utcnow_naive()
+    if payload.occurred_at is not None:
+        occurred = (
+            payload.occurred_at.astimezone(timezone.utc).replace(tzinfo=None)
+            if payload.occurred_at.tzinfo is not None
+            else payload.occurred_at
+        )
+    else:
+        occurred = utcnow_naive()
     movement = StockMovement(
         store_id=user.store_id,
         product_id=product.id,

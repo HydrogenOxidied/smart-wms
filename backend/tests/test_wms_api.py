@@ -185,6 +185,8 @@ def test_flow1_consumption_idempotency_anomaly_and_reversal(client_and_db):
         headers=staff_headers,
     )
     assert mv1.status_code == 201, mv1.text
+    assert mv1.json()["occurred_at"].endswith("Z")
+    assert mv1.json()["created_at"].endswith("Z")
     mv1_dup = client.post(
         "/api/v1/movements",
         json={

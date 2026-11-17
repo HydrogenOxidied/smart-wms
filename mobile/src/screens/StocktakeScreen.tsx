@@ -20,6 +20,7 @@ import { ProductAuditSummary, StockMovement } from '../types/wms';
 import {
   formatNumber,
   formatShortDate,
+  parseUtcDate,
   triggerLightHaptic,
   triggerSuccessHaptic,
 } from '../utils/formatters';
@@ -73,8 +74,7 @@ function getActorRoleLabel(role?: string | null): string {
 }
 
 function isWithinReversalWindow(createdAt: string): boolean {
-  const normalized = createdAt.endsWith('Z') ? createdAt : `${createdAt}Z`;
-  const parsed = Date.parse(normalized);
+  const parsed = parseUtcDate(createdAt).getTime();
   if (Number.isNaN(parsed)) return true;
   return (Date.now() - parsed) / 60000 <= 16;
 }
@@ -200,7 +200,7 @@ const AuditMovementCard = React.memo(
         <View style={styles.rowBetween}>
           <Text style={[styles.metaText, { color: theme.textMuted, flex: 1 }]}>
             {getActorRoleLabel(item.user_role)}: {item.user_name || 'Hệ thống'} ·{' '}
-            {formatShortDate(item.occurred_at)}
+            {formatShortDate(item.movement_type === 'REVERSAL' ? item.created_at : item.occurred_at)}
           </Text>
           {canReverse ? (
             <Pressable

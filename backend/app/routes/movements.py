@@ -3,7 +3,7 @@ from datetime import timedelta
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, Query, status
-from sqlalchemy import select
+from sqlalchemy import or_, select
 from sqlalchemy.orm import Session
 
 from app.core.database import get_db
@@ -67,9 +67,11 @@ def list_movements(
         )
     if days is not None:
         since = utcnow_naive() - timedelta(days=days)
-        query = query.where(StockMovement.occurred_at >= since)
+        query = query.where(
+            or_(StockMovement.occurred_at >= since, StockMovement.created_at >= since)
+        )
     rows = db.scalars(
-        query.order_by(StockMovement.occurred_at.desc(), StockMovement.id.desc()).limit(limit)
+        query.order_by(StockMovement.created_at.desc(), StockMovement.id.desc()).limit(limit)
     ).all()
     return [serialize_movement(db, row) for row in rows]
 
