@@ -36,7 +36,8 @@
   - **`[1]`**: Bật Server / Cấp mới link & mã QR 4G.
   - **`[2]`**: Tắt toàn bộ Backend & Tunnel 4G.
   - **`[3]`**: Bật / Tắt tự khởi động ngầm cùng Windows (qua `scripts\start-hidden.vbs`).
-- Hỗ trợ chạy nhanh qua dòng lệnh: `start-wms.bat status`, `start-wms.bat stop`, `start-wms.bat restart-tunnel`, `start-wms.bat install-autostart`.
+  - **`[4]`**: Kiểm tra & tự động cập nhật bản `.zip` mới nhất từ GitHub Releases (giữ nguyên toàn bộ database kho hiện có).
+- Hỗ trợ chạy nhanh qua dòng lệnh: `start-wms.bat status`, `start-wms.bat stop`, `start-wms.bat restart-tunnel`, `start-wms.bat check-update`, `start-wms.bat update`, `start-wms.bat install-autostart`.
 
 *(Để phát triển frontend Expo Metro cục bộ, chạy `npx expo start` trong thư mục `mobile/`. Để chạy kiểm thử E2E Playwright trên trình duyệt, chạy `npm test` trong thư mục `e2e/`.)*
 

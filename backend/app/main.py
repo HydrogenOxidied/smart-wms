@@ -33,7 +33,7 @@ def create_app() -> FastAPI:
     settings = get_settings()
     app = FastAPI(
         title=settings.app_name,
-        version="1.0.0",
+        version="1.0.1",
         description="Mobile-First Smart Inventory, Blind Barcode Stocktake & 3-Tier Demand Forecasting API",
         lifespan=lifespan,
     )
@@ -48,7 +48,7 @@ def create_app() -> FastAPI:
 
     @app.get(f"{settings.api_prefix}/health", tags=["Health"])
     def health_check() -> dict[str, str]:
-        return {"status": "ok", "service": "pocketwms-api", "version": "1.0.0"}
+        return {"status": "ok", "service": "pocketwms-api", "version": "1.0.1"}
 
     app.include_router(auth.router, prefix=settings.api_prefix)
     app.include_router(store.router, prefix=settings.api_prefix)

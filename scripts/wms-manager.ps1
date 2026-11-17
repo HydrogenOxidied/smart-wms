@@ -1,14 +1,18 @@
 ﻿[CmdletBinding()]
 param(
-    [ValidateSet('launcher', 'start', 'start-silent', 'restart-tunnel', 'stop', 'status', 'install-autostart', 'remove-autostart')]
+    [ValidateSet('launcher', 'start', 'start-silent', 'restart-tunnel', 'stop', 'status', 'check-update', 'update', 'install-autostart', 'remove-autostart')]
     [string]$Action = 'launcher'
 )
 
 $ErrorActionPreference = 'Stop'
 [System.Console]::OutputEncoding = [System.Text.Encoding]::UTF8
+try { [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12 } catch {}
 
 $ScriptsDir = Split-Path -Parent $MyInvocation.MyCommand.Path
 $RootDir = Split-Path -Parent $ScriptsDir
+$VersionFile = Join-Path $RootDir 'VERSION'
+$GitHubRepo = 'HydrogenOxidied/smart-wms'
+$Script:CachedUpdateInfo = $null
 $BackendDir = Join-Path $RootDir 'backend'
 $PythonExe = Join-Path $BackendDir '.venv\Scripts\python.exe'
 $QrScript = Join-Path $ScriptsDir 'qr_matrix.py'
@@ -370,6 +374,215 @@ function Invoke-PrintQrCode {
     Write-Host ''
 }
 
+function Get-LocalVersion {
+    $raw = Read-TextTrimmed -Path $VersionFile
+    if (-not $raw) { return '1.0.0' }
+    return $raw.TrimStart('v', 'V')
+}
+
+function ConvertTo-ComparableVersion {
+    param([string]$VerString)
+
+    $cleaned = ([string]$VerString).Trim().TrimStart('v', 'V')
+    $dashIdx = $cleaned.IndexOf('-')
+    if ($dashIdx -gt 0) {
+        $cleaned = $cleaned.Substring(0, $dashIdx)
+    }
+    $parts = @($cleaned.Split('.') | Where-Object { $_ -match '^\d+$' })
+    while ($parts.Count -lt 3) {
+        $parts += '0'
+    }
+    $norm = ($parts[0..2]) -join '.'
+    $parsed = $null
+    if ([System.Version]::TryParse($norm, [ref]$parsed)) {
+        return $parsed
+    }
+    return ([System.Version]'0.0.0')
+}
+
+function Get-GitHubReleaseUpdate {
+    param([string]$OverrideLocalVersion = '')
+
+    $localVer = if ($OverrideLocalVersion) { $OverrideLocalVersion.TrimStart('v', 'V') } else { Get-LocalVersion }
+    $apiUrl = "https://api.github.com/repos/$GitHubRepo/releases/latest"
+    try {
+        $headers = @{
+            'User-Agent' = 'PocketWMS-Updater'
+            'Accept'     = 'application/vnd.github+json'
+        }
+        $rel = Invoke-RestMethod -Uri $apiUrl -Headers $headers -Method GET -TimeoutSec 5
+        $remoteTag = [string]$rel.tag_name
+        $remoteVer = $remoteTag.TrimStart('v', 'V')
+        $localObj = ConvertTo-ComparableVersion -VerString $localVer
+        $remoteObj = ConvertTo-ComparableVersion -VerString $remoteVer
+        $hasUpdate = ($remoteObj -gt $localObj)
+
+        $zipAsset = $null
+        if ($rel.assets) {
+            $zipAsset = $rel.assets | Where-Object { $_.name -match '\.zip$' } | Select-Object -First 1
+        }
+        $downloadUrl = if ($zipAsset -and $zipAsset.browser_download_url) {
+            [string]$zipAsset.browser_download_url
+        } else {
+            [string]$rel.zipball_url
+        }
+        $assetName = if ($zipAsset -and $zipAsset.name) { [string]$zipAsset.name } else { "$remoteTag.zip" }
+
+        $result = [PSCustomObject]@{
+            Checked         = $true
+            UpdateAvailable = $hasUpdate
+            LocalVersion    = $localVer
+            RemoteTag       = $remoteTag
+            RemoteVer       = $remoteVer
+            AssetName       = $assetName
+            DownloadUrl     = $downloadUrl
+            HtmlUrl         = [string]$rel.html_url
+            Error           = $null
+        }
+        if (-not $OverrideLocalVersion) {
+            $Script:CachedUpdateInfo = $result
+        }
+        return $result
+    } catch {
+        $errResult = [PSCustomObject]@{
+            Checked         = $false
+            UpdateAvailable = $false
+            LocalVersion    = $localVer
+            RemoteTag       = ''
+            RemoteVer       = ''
+            AssetName       = ''
+            DownloadUrl     = ''
+            HtmlUrl         = "https://github.com/$GitHubRepo/releases"
+            Error           = "$_"
+        }
+        if (-not $OverrideLocalVersion) {
+            $Script:CachedUpdateInfo = $errResult
+        }
+        return $errResult
+    }
+}
+
+function Invoke-ApplyReleaseUpdate {
+    param($UpdateInfo)
+
+    if ((-not $UpdateInfo) -or (-not $UpdateInfo.DownloadUrl)) {
+        throw 'Khong tim thay link tai ban cap nhat (.zip).'
+    }
+
+    $tempZip = Join-Path $env:TEMP ("PocketWMS-update-" + $UpdateInfo.RemoteVer + ".zip")
+    $tempExtract = Join-Path $env:TEMP ("PocketWMS-extract-" + $UpdateInfo.RemoteVer)
+    Remove-Item $tempZip -Force -ErrorAction SilentlyContinue
+    if (Test-Path $tempExtract) {
+        Remove-Item $tempExtract -Recurse -Force -ErrorAction SilentlyContinue
+    }
+
+    Write-Host "[1/4] Dang tai $($UpdateInfo.AssetName) ($($UpdateInfo.RemoteTag))..." -ForegroundColor Cyan
+    Invoke-WebRequest -Uri $UpdateInfo.DownloadUrl -OutFile $tempZip -UseBasicParsing -Headers @{ 'User-Agent' = 'PocketWMS-Updater' } -TimeoutSec 60
+
+    Write-Host '[2/4] Dang giai nen goi cap nhat...'
+    Add-Type -AssemblyName System.IO.Compression.FileSystem
+    [System.IO.Compression.ZipFile]::ExtractToDirectory($tempZip, $tempExtract)
+
+    $sourceRoot = $null
+    if (Test-Path (Join-Path $tempExtract 'backend\app\main.py')) {
+        $sourceRoot = $tempExtract
+    } else {
+        $candidateDir = Get-ChildItem -Path $tempExtract -Directory -ErrorAction SilentlyContinue |
+            Where-Object { (Test-Path (Join-Path $_.FullName 'backend\app\main.py')) } |
+            Select-Object -First 1
+        if ($candidateDir) {
+            $sourceRoot = $candidateDir.FullName
+        }
+    }
+    if (-not $sourceRoot) {
+        throw 'Goi .zip khong dung cau truc PocketWMS (thieu backend\app\main.py).'
+    }
+
+    Write-Host '[3/4] Dang dung Server de cap nhat ma nguon an toan (giu nguyen database)...'
+    Invoke-StopAll
+
+    $srcDist = Join-Path $sourceRoot 'mobile\dist'
+    $dstDist = Join-Path $RootDir 'mobile\dist'
+    if (Test-Path (Join-Path $srcDist 'index.html')) {
+        if (Test-Path $dstDist) {
+            Remove-Item $dstDist -Recurse -Force -ErrorAction SilentlyContinue
+        }
+        Copy-Item -Path $srcDist -Destination $dstDist -Recurse -Force
+    }
+
+    $sourceFiles = Get-ChildItem -Path $sourceRoot -Recurse -File
+    foreach ($file in $sourceFiles) {
+        $relPath = $file.FullName.Substring($sourceRoot.Length).TrimStart('\', '/')
+        if (
+            ($relPath -match '\.(db|db-shm|db-wal)$') -or
+            ($file.Name -eq '.env') -or
+            ($relPath -match '(^|[\\/])(\.venv|venv|node_modules|\.git)([\\/]|$)') -or
+            ($relPath -match '^backend[\\/]logs([\\/]|$)') -or
+            ($relPath -match '^mobile[\\/]dist([\\/]|$)')
+        ) {
+            continue
+        }
+        $destPath = Join-Path $RootDir $relPath
+        $destDir = Split-Path -Parent $destPath
+        if (-not (Test-Path $destDir)) {
+            New-Item -ItemType Directory -Force -Path $destDir | Out-Null
+        }
+        try {
+            Copy-Item -Path $file.FullName -Destination $destPath -Force
+        } catch {
+            Write-Warning "Bo qua file dang mo: $relPath"
+        }
+    }
+
+    if (-not (Test-Path (Join-Path $sourceRoot 'VERSION'))) {
+        Write-TextNoBom -Path $VersionFile -Value $UpdateInfo.RemoteVer
+    }
+
+    $reqFile = Join-Path $BackendDir 'requirements.txt'
+    if ((Test-Path $PythonExe) -and (Test-Path $reqFile)) {
+        Write-Host '[4/4] Dang dong bo thu vien Python backend...'
+        & $PythonExe -m pip install -r $reqFile --quiet
+    }
+
+    Remove-Item $tempZip -Force -ErrorAction SilentlyContinue
+    if (Test-Path $tempExtract) {
+        Remove-Item $tempExtract -Recurse -Force -ErrorAction SilentlyContinue
+    }
+    $Script:CachedUpdateInfo = $null
+    Write-Host "[OK] Da cap nhat thanh cong len phien ban v$($UpdateInfo.RemoteVer)! Du lieu kho duoc giu nguyen." -ForegroundColor Green
+}
+
+function Invoke-CheckAndPromptUpdate {
+    param([switch]$AutoApply)
+
+    Write-Host "[...] Dang kiem tra ban phat hanh moi tren GitHub ($GitHubRepo)..."
+    $info = Get-GitHubReleaseUpdate
+    if (-not $info.Checked) {
+        Write-Host "[WARN] Khong the ket noi GitHub de kiem tra cap nhat: $($info.Error)" -ForegroundColor Yellow
+        return $false
+    }
+
+    Write-Host "Phien ban hien tai : v$($info.LocalVersion)"
+    Write-Host "Ban moi nhat GitHub: $($info.RemoteTag) ($($info.HtmlUrl))"
+
+    if (-not $info.UpdateAvailable) {
+        Write-Host '[OK] Ban dang dung phien ban moi nhat!' -ForegroundColor Green
+        return $false
+    }
+
+    if ($AutoApply) {
+        Invoke-ApplyReleaseUpdate -UpdateInfo $info
+        return $true
+    }
+
+    $ans = Read-Host "Co ban cap nhat moi $($info.RemoteTag). Tai va cap nhat ngay? [Y/n]"
+    if (($null -ne $ans) -and ($ans.Trim() -in '', 'y', 'Y')) {
+        Invoke-ApplyReleaseUpdate -UpdateInfo $info
+        return $true
+    }
+    return $false
+}
+
 function Invoke-ShowStatus {
     $lanIp = Get-LanIp
     $localOnline = Test-LocalHealth
@@ -403,6 +616,20 @@ function Invoke-ShowStatus {
 
     Write-Host "Web/PWA LAN : http://${lanIp}:8000/web"
     Write-Host "API URL LAN : http://${lanIp}:8000/api/v1"
+
+    $localVer = Get-LocalVersion
+    $verNote = ''
+    $verColor = 'White'
+    if ($Script:CachedUpdateInfo -and $Script:CachedUpdateInfo.Checked) {
+        if ($Script:CachedUpdateInfo.UpdateAvailable) {
+            $verNote = " (Co ban moi $($Script:CachedUpdateInfo.RemoteTag) -> Bam [4])"
+            $verColor = 'Yellow'
+        } else {
+            $verNote = ' (Moi nhat)'
+            $verColor = 'Green'
+        }
+    }
+    Write-Host "PHIEN BAN   : v$localVer$verNote" -ForegroundColor $verColor
 
     if (Test-AutostartInstalled) {
         Write-Host 'AUTOSTART   : DANG BAT (cung Windows)' -ForegroundColor Green
@@ -443,6 +670,15 @@ function Invoke-PrintStartBanner {
 function Invoke-Launcher {
     try {
         Repair-LegacyAutostart
+        $upd = Get-GitHubReleaseUpdate
+        if ($upd.Checked -and $upd.UpdateAvailable) {
+            Write-Host ''
+            Write-Host "[CAP NHAT MOI] Da co ban $($upd.RemoteTag) tren GitHub (Hien tai: v$($upd.LocalVersion))!" -ForegroundColor Yellow
+            $doUpd = Read-Host 'Cap nhat ngay truoc khi khoi dong? [y/N]'
+            if (($null -ne $doUpd) -and ($doUpd.Trim() -in 'y', 'Y')) {
+                Invoke-ApplyReleaseUpdate -UpdateInfo $upd
+            }
+        }
         Write-Host '[PocketWMS] Dang kiem tra / khoi dong ngam Backend & Link 4G...'
         [void](Ensure-Backend)
         [void](Ensure-CloudflareTunnel)
@@ -457,9 +693,10 @@ function Invoke-Launcher {
             Write-Host '  [1]     Bat Server / Cap moi link & ma QR 4G'
             Write-Host '  [2]     Tat toan bo Backend & Tunnel 4G'
             Write-Host '  [3]     Bat / Tat Tu khoi dong cung Windows'
+            Write-Host '  [4]     Kiem tra & Cap nhat phien ban moi (GitHub Release)'
             Write-Host '--------------------------------------------------------------------------' -ForegroundColor DarkGray
 
-            $rawChoice = Read-Host 'Chon thao tac [Enter/1/2/3]'
+            $rawChoice = Read-Host 'Chon thao tac [Enter/1/2/3/4]'
             if ($null -eq $rawChoice) {
                 $running = $false
                 continue
@@ -480,6 +717,13 @@ function Invoke-Launcher {
                 }
                 '3' {
                     Invoke-ToggleAutostart
+                }
+                '4' {
+                    if (Invoke-CheckAndPromptUpdate) {
+                        Write-Host '[...] Dang khoi dong lai Server voi phien ban moi...'
+                        [void](Ensure-Backend)
+                        [void](Ensure-CloudflareTunnel)
+                    }
                 }
                 default {
                     Write-Host '[WARN] Lua chon khong hop le.' -ForegroundColor Yellow
@@ -526,6 +770,23 @@ switch ($Action) {
     'status' {
         Repair-LegacyAutostart
         Invoke-ShowStatus
+    }
+    'check-update' {
+        $info = Get-GitHubReleaseUpdate
+        if (-not $info.Checked) {
+            Write-Host "[WARN] Khong the ket noi GitHub de kiem tra cap nhat: $($info.Error)" -ForegroundColor Yellow
+        } else {
+            Write-Host "Phien ban hien tai : v$($info.LocalVersion)"
+            Write-Host "Ban moi nhat GitHub: $($info.RemoteTag) ($($info.HtmlUrl))"
+            if ($info.UpdateAvailable) {
+                Write-Host "[CAP NHAT MOI] Co san $($info.AssetName). Chay 'start-wms.bat update' de tai & cap nhat." -ForegroundColor Yellow
+            } else {
+                Write-Host '[OK] Ban dang dung phien ban moi nhat!' -ForegroundColor Green
+            }
+        }
+    }
+    'update' {
+        [void](Invoke-CheckAndPromptUpdate -AutoApply)
     }
     'install-autostart' {
         Invoke-InstallAutostart
