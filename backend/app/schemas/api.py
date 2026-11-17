@@ -222,8 +222,11 @@ class StockMovementOut(BaseModel):
     product_unit: str | None = None
     user_id: int
     user_name: str | None = None
+    user_username: str | None = None
+    user_role: str | None = None
     movement_type: str
     quantity_delta: float
+    balance_before: float = 0.0
     balance_after: float
     unit_entered: str | None
     quantity_entered: float | None
@@ -240,6 +243,37 @@ class BatchMovementResponse(BaseModel):
 
     processed_count: int
     movements: list[StockMovementOut]
+
+
+class ProductAuditSummaryOut(BaseModel):
+    """Per-product aggregated stock-in and staff/manager consumption audit."""
+
+    product_id: int
+    sku: str
+    name: str
+    unit: str
+    current_stock: float
+    owner_imported_qty: float
+    owner_imported_count: int
+    staff_consumed_qty: float
+    staff_consumed_count: int
+    manager_consumed_qty: float
+    total_consumed_qty: float
+    last_modified_at: datetime | None = None
+
+
+class LedgerAuditSummaryOut(BaseModel):
+    """Store-wide modification summary separating staff consumption from owner stock-in."""
+
+    store_id: int
+    period_days: int | None = None
+    owner_imported_total: float
+    owner_imported_events: int
+    staff_consumed_total: float
+    staff_consumed_events: int
+    manager_consumed_total: float
+    manager_consumed_events: int
+    products: list[ProductAuditSummaryOut]
 
 
 class StocktakeCreateRequest(BaseModel):

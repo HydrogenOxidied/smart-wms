@@ -108,8 +108,11 @@ export interface StockMovement {
   product_unit: string | null;
   user_id: number;
   user_name: string | null;
+  user_username?: string | null;
+  user_role?: RoleType | string | null;
   movement_type: MovementType;
   quantity_delta: number;
+  balance_before?: number;
   balance_after: number;
   unit_entered: string | null;
   quantity_entered: number | null;
@@ -119,6 +122,33 @@ export interface StockMovement {
   is_reversed: boolean;
   occurred_at: string;
   created_at: string;
+}
+
+export interface ProductAuditSummary {
+  product_id: number;
+  sku: string;
+  name: string;
+  unit: string;
+  current_stock: number;
+  owner_imported_qty: number;
+  owner_imported_count: number;
+  staff_consumed_qty: number;
+  staff_consumed_count: number;
+  manager_consumed_qty: number;
+  total_consumed_qty: number;
+  last_modified_at: string | null;
+}
+
+export interface LedgerAuditSummary {
+  store_id: number;
+  period_days: number | null;
+  owner_imported_total: number;
+  owner_imported_events: number;
+  staff_consumed_total: number;
+  staff_consumed_events: number;
+  manager_consumed_total: number;
+  manager_consumed_events: number;
+  products: ProductAuditSummary[];
 }
 
 export interface StocktakeItem {

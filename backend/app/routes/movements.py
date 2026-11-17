@@ -1,4 +1,5 @@
-"""Immutable stock ledger endpoints: Flow 1 single movement, Flow 2 batch, and 15m reversal."""
+"""Immutable stock ledger endpoints: Flow 1 single movement, Flow 2 batch, audit summary, and 15m reversal."""
+from datetime import timedelta
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, Query, status
@@ -7,15 +8,17 @@ from sqlalchemy.orm import Session
 
 from app.core.database import get_db
 from app.core.security import get_current_user
-from app.models.entities import StockMovement, User
+from app.models.entities import StockMovement, User, utcnow_naive
 from app.schemas.api import (
     BatchMovementRequest,
     BatchMovementResponse,
+    LedgerAuditSummaryOut,
     MovementCreate,
     ReversalRequest,
     StockMovementOut,
 )
 from app.services.ledger import (
+    get_ledger_audit_summary,
     record_batch_movements,
     record_movement,
     reverse_movement,
@@ -25,13 +28,25 @@ from app.services.ledger import (
 router = APIRouter(prefix="/movements", tags=["Stock Ledger"])
 
 
+@router.get("/summary", response_model=LedgerAuditSummaryOut)
+def get_movements_summary(
+    current_user: Annotated[User, Depends(get_current_user)],
+    db: Annotated[Session, Depends(get_db)],
+    days: int | None = Query(default=None, ge=1, le=3650),
+) -> LedgerAuditSummaryOut:
+    """Summarize owner restocks and staff consumptions per store and per product."""
+    return get_ledger_audit_summary(db, current_user.store_id, days)
+
+
 @router.get("", response_model=list[StockMovementOut])
 def list_movements(
     current_user: Annotated[User, Depends(get_current_user)],
     db: Annotated[Session, Depends(get_db)],
     product_id: int | None = Query(default=None),
     movement_type: str | None = Query(default=None),
-    limit: int = Query(default=50, ge=1, le=200),
+    actor_role: str | None = Query(default=None),
+    days: int | None = Query(default=None, ge=1, le=3650),
+    limit: int = Query(default=100, ge=1, le=500),
 ) -> list[StockMovementOut]:
     """List recent immutable stock movements for the current store."""
     query = select(StockMovement).where(StockMovement.store_id == current_user.store_id)
@@ -39,6 +54,13 @@ def list_movements(
         query = query.where(StockMovement.product_id == product_id)
     if movement_type:
         query = query.where(StockMovement.movement_type == movement_type)
+    if actor_role:
+        query = query.join(User, StockMovement.user_id == User.id).where(
+            User.role == actor_role.upper()
+        )
+    if days is not None:
+        since = utcnow_naive() - timedelta(days=days)
+        query = query.where(StockMovement.occurred_at >= since)
     rows = db.scalars(
         query.order_by(StockMovement.occurred_at.desc(), StockMovement.id.desc()).limit(limit)
     ).all()

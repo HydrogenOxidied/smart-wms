@@ -21,7 +21,6 @@ import {
   StatusPill,
 } from '../components/CommonUI';
 import { QuickAddProductModal } from '../components/QuickAddProductModal';
-import { RestockSlideModal } from '../components/RestockSlideModal';
 import { api, isOfflineNetworkError } from '../services/apiClient';
 import { useAuthStore } from '../store/authStore';
 import { useOfflineQueueStore } from '../store/offlineQueueStore';
@@ -43,23 +42,38 @@ const FILTER_OPTIONS: ChipOption[] = [
   { key: 'CONSUMABLE', label: 'Vật tư nhỏ lẻ' },
 ];
 
+function getMovementLabel(item: StockMovement): string {
+  switch (item.movement_type) {
+    case 'IN_PURCHASE':
+      return 'Chủ nhập kho (+)';
+    case 'OUT_CONSUMPTION':
+      return item.user_role === 'STAFF' ? 'Nhân viên tiêu hao (-)' : 'Tiêu hao (-)';
+    case 'OUT_DAMAGE_EXPIRED':
+      return 'Báo hỏng / Hủy (-)';
+    case 'REVERSAL':
+      return 'Hoàn tác đính chính';
+    case 'PACK_BREAK':
+      return 'Khui thùng / Xé lẻ';
+    case 'ADJUST_STOCKTAKE':
+      return 'Cân bằng kiểm kê';
+    default:
+      return item.movement_type;
+  }
+}
+
 const ProductCard = React.memo(
   ({
     item,
     liteMode,
-    isManager,
     onSelect,
     onQuickDeduct,
     onBreakPack,
-    onRestock,
   }: {
     item: Product;
     liteMode: boolean;
-    isManager: boolean;
     onSelect: (p: Product) => void;
     onQuickDeduct: (p: Product) => void;
     onBreakPack: (p: Product) => void;
-    onRestock: (p: Product) => void;
   }) => {
     const theme = useTheme();
     const isLow = item.current_stock <= item.min_stock_level;
@@ -143,44 +157,23 @@ const ProductCard = React.memo(
           <Text style={[styles.subInfo, { color: theme.textMuted }]}>
             Tối thiểu: {formatNumber(item.min_stock_level)} {item.unit}
           </Text>
-          <View style={styles.footerActions}>
-            {isManager ? (
-              <Pressable
-                onPress={() => onRestock(item)}
-                accessibilityRole="button"
-                accessibilityLabel={`Nhập thêm hàng cho ${item.name}`}
-                android_ripple={{ color: theme.ripple }}
-                style={({ pressed }) => [
-                  styles.quickMinusBtn,
-                  {
-                    backgroundColor: theme.primarySoft,
-                    borderColor: theme.primary,
-                    opacity: pressed ? 0.78 : 1,
-                  },
-                ]}
-              >
-                <Ionicons name="add-circle-outline" size={18} color={theme.primary} />
-                <Text style={[styles.quickMinusText, { color: theme.primary }]}>+ Nhập</Text>
-              </Pressable>
-            ) : null}
-            <Pressable
-              onPress={() => onQuickDeduct(item)}
-              accessibilityRole="button"
-              accessibilityLabel={`Xuất nhanh 1 ${item.unit} ${item.name}`}
-              android_ripple={{ color: theme.ripple }}
-              style={({ pressed }) => [
-                styles.quickMinusBtn,
-                {
-                  backgroundColor: theme.surfaceAlt,
-                  borderColor: theme.border,
-                  opacity: pressed ? 0.75 : 1,
-                },
-              ]}
-            >
-              <Ionicons name="remove-circle-outline" size={18} color={theme.danger} />
-              <Text style={[styles.quickMinusText, { color: theme.text }]}>-1 {item.unit}</Text>
-            </Pressable>
-          </View>
+          <Pressable
+            onPress={() => onQuickDeduct(item)}
+            accessibilityRole="button"
+            accessibilityLabel={`Xuất nhanh 1 ${item.unit} ${item.name}`}
+            android_ripple={{ color: theme.ripple }}
+            style={({ pressed }) => [
+              styles.quickMinusBtn,
+              {
+                backgroundColor: theme.surfaceAlt,
+                borderColor: theme.border,
+                opacity: pressed ? 0.75 : 1,
+              },
+            ]}
+          >
+            <Ionicons name="remove-circle-outline" size={18} color={theme.danger} />
+            <Text style={[styles.quickMinusText, { color: theme.text }]}>-1 {item.unit}</Text>
+          </Pressable>
         </View>
       </Pressable>
     );
@@ -190,17 +183,22 @@ const ProductCard = React.memo(
 const LedgerRow = React.memo(({ item }: { item: StockMovement }) => {
   const theme = useTheme();
   const isPositive = item.quantity_delta > 0;
+  const beforeQty =
+    typeof item.balance_before === 'number'
+      ? item.balance_before
+      : Number((item.balance_after - item.quantity_delta).toFixed(3));
   return (
     <View style={[styles.ledgerRow, { backgroundColor: theme.surfaceAlt, borderColor: theme.border }]}>
       <View style={styles.rowBetween}>
-        <Text style={[styles.ledgerType, { color: theme.text }]}>{item.movement_type}</Text>
+        <Text style={[styles.ledgerType, { color: theme.text }]}>{getMovementLabel(item)}</Text>
         <Text style={[styles.ledgerDelta, { color: isPositive ? theme.primary : theme.danger }]}>
-          {isPositive ? `+${formatNumber(item.quantity_delta)}` : formatNumber(item.quantity_delta)}
+          {isPositive ? `+${formatNumber(item.quantity_delta)}` : formatNumber(item.quantity_delta)}{' '}
+          {item.product_unit || ''}
         </Text>
       </View>
       <Text style={[styles.subInfo, { color: theme.textMuted }]}>
-        Tồn sau: {formatNumber(item.balance_after)} · {formatShortDate(item.occurred_at)} ·{' '}
-        {item.user_name || 'Hệ thống'}
+        Trước: {formatNumber(beforeQty)} → Còn: {formatNumber(item.balance_after)} ·{' '}
+        {formatShortDate(item.occurred_at)} · {item.user_name || 'Hệ thống'}
       </Text>
       {item.note ? (
         <Text style={[styles.subInfo, { color: theme.textMuted }]}>{item.note}</Text>
@@ -222,7 +220,6 @@ export function InventoryScreen() {
   const [scannerOpen, setScannerOpen] = useState(false);
   const [quickAddOpen, setQuickAddOpen] = useState(false);
   const [selectedProduct, setSelectedProduct] = useState<Product | null>(null);
-  const [restockTarget, setRestockTarget] = useState<Product | null>(null);
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [deleting, setDeleting] = useState(false);
   const [bannerMsg, setBannerMsg] = useState<string | null>(null);
@@ -272,6 +269,7 @@ export function InventoryScreen() {
         void queryClient.invalidateQueries({ queryKey: ['products'] });
         void queryClient.invalidateQueries({ queryKey: ['forecast-overview'] });
         void queryClient.invalidateQueries({ queryKey: ['movements'] });
+        void queryClient.invalidateQueries({ queryKey: ['movements-summary'] });
       } catch (err) {
         if (isOfflineNetworkError(err)) {
           await enqueueMovement(prod.name, prod.unit, payload);
@@ -293,6 +291,8 @@ export function InventoryScreen() {
           `Đã khui 1 ${prod.pack_unit} "${prod.name}" thành ${prod.pack_conversion_rate} ${prod.unit} lẻ.`,
         );
         void queryClient.invalidateQueries({ queryKey: ['products'] });
+        void queryClient.invalidateQueries({ queryKey: ['movements'] });
+        void queryClient.invalidateQueries({ queryKey: ['movements-summary'] });
       } catch (err) {
         setBannerMsg(err instanceof Error ? err.message : 'Không thể khui bịch.');
       }
@@ -329,7 +329,8 @@ export function InventoryScreen() {
       setBannerMsg(`Đã xóa mặt hàng "${deletedName}" khỏi danh sách quản lý kho.`);
       void queryClient.invalidateQueries({ queryKey: ['products'] });
       void queryClient.invalidateQueries({ queryKey: ['forecast-overview'] });
-      void queryClient.invalidateQueries({ queryKey: ['stocktakes'] });
+      void queryClient.invalidateQueries({ queryKey: ['movements'] });
+      void queryClient.invalidateQueries({ queryKey: ['movements-summary'] });
     } catch (err) {
       setBannerMsg(err instanceof Error ? err.message : 'Không thể xóa mặt hàng.');
     } finally {
@@ -342,17 +343,15 @@ export function InventoryScreen() {
       <ProductCard
         item={item}
         liteMode={Boolean(store?.lite_mode)}
-        isManager={isManager}
         onSelect={(p) => {
           setConfirmDelete(false);
           setSelectedProduct(p);
         }}
         onQuickDeduct={(p) => void handleQuickDeduct(p)}
         onBreakPack={(p) => void handleBreakPack(p)}
-        onRestock={(p) => setRestockTarget(p)}
       />
     ),
-    [store?.lite_mode, isManager, handleQuickDeduct, handleBreakPack],
+    [store?.lite_mode, handleQuickDeduct, handleBreakPack],
   );
 
   const productKey = useCallback((item: Product) => String(item.id), []);
@@ -445,27 +444,8 @@ export function InventoryScreen() {
           setBannerMsg(`Đã thêm "${prod.name}" (SKU: ${prod.sku}).`);
           void queryClient.invalidateQueries({ queryKey: ['products'] });
           void queryClient.invalidateQueries({ queryKey: ['forecast-overview'] });
-        }}
-        onRestockExisting={
-          isManager
-            ? (productId) => {
-                const found = (productsQuery.data || []).find((p) => p.id === productId);
-                if (found) {
-                  setQuickAddOpen(false);
-                  setRestockTarget(found);
-                }
-              }
-            : undefined
-        }
-      />
-
-      <RestockSlideModal
-        visible={Boolean(restockTarget)}
-        product={restockTarget}
-        onClose={() => setRestockTarget(null)}
-        onSuccess={(msg) => {
-          setRestockTarget(null);
-          setBannerMsg(msg);
+          void queryClient.invalidateQueries({ queryKey: ['movements'] });
+          void queryClient.invalidateQueries({ queryKey: ['movements-summary'] });
         }}
       />
 
@@ -517,18 +497,6 @@ export function InventoryScreen() {
                   Kệ: {selectedProduct.shelf_location || 'Chưa gán'} · NCC:{' '}
                   {selectedProduct.supplier_name || 'Chưa gán'}
                 </Text>
-                {isManager ? (
-                  <ActionButton
-                    label={`+ Nhập thêm ${selectedProduct.unit} (Thanh kéo & Điền số)`}
-                    icon="add-circle-outline"
-                    onPress={() => {
-                      const target = selectedProduct;
-                      setConfirmDelete(false);
-                      setSelectedProduct(null);
-                      setRestockTarget(target);
-                    }}
-                  />
-                ) : null}
                 <ActionButton
                   label={`Trừ nhanh 1 ${selectedProduct.unit} tiêu thụ`}
                   icon="remove-circle-outline"
@@ -659,11 +627,6 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     alignItems: 'center',
     marginTop: SPACING.xs,
-    gap: SPACING.sm,
-  },
-  footerActions: {
-    flexDirection: 'row',
-    alignItems: 'center',
     gap: SPACING.sm,
   },
   subInfo: { fontSize: 13 },

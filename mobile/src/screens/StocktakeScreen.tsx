@@ -1,91 +1,259 @@
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useMemo, useState } from 'react';
 import {
+  Alert,
   FlatList,
-  Modal,
+  Platform,
   Pressable,
   RefreshControl,
   StyleSheet,
-  Switch,
   Text,
-  TextInput,
   View,
 } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { Ionicons } from '@expo/vector-icons';
-import { BarcodeScannerModal } from '../components/BarcodeScannerModal';
-import { ActionButton, ChipOption, ChipRow, StatusPill } from '../components/CommonUI';
+import { ChipOption, ChipRow, StatusPill } from '../components/CommonUI';
 import { api } from '../services/apiClient';
 import { useAuthStore } from '../store/authStore';
 import { RADIUS, SPACING, TOUCH_MIN } from '../theme/tokens';
 import { useTheme } from '../theme/useTheme';
-import { StocktakeItem } from '../types/wms';
-import { formatNumber, triggerLightHaptic, triggerSuccessHaptic } from '../utils/formatters';
+import { ProductAuditSummary, StockMovement } from '../types/wms';
+import {
+  formatNumber,
+  formatShortDate,
+  triggerLightHaptic,
+  triggerSuccessHaptic,
+} from '../utils/formatters';
 
-const GAUGE_PRESETS: ChipOption[] = [
-  { key: '100', label: 'Đầy 100%' },
-  { key: '75', label: '3/4 (75%)' },
-  { key: '50', label: 'Một nửa (50%)' },
-  { key: '20', label: 'Sắp hết (20%)' },
-  { key: '0', label: 'Cạn (0%)' },
+type AuditViewMode = 'log' | 'by_product';
+type TimeframeKey = 'ALL' | '1' | '7' | '30';
+type ActionFilterKey = 'ALL' | 'STAFF_OUT' | 'OWNER_IN' | 'ALL_OUT' | 'OTHER';
+
+const VIEW_MODE_OPTIONS: ChipOption[] = [
+  { key: 'log', label: 'Nhật ký chi tiết' },
+  { key: 'by_product', label: 'Tổng hợp từng mặt hàng' },
 ];
 
-const StocktakeLineCard = React.memo(
+const TIMEFRAME_OPTIONS: ChipOption[] = [
+  { key: 'ALL', label: 'Toàn bộ' },
+  { key: '1', label: 'Hôm nay' },
+  { key: '7', label: '7 ngày' },
+  { key: '30', label: '30 ngày' },
+];
+
+const ACTION_FILTER_OPTIONS: ChipOption[] = [
+  { key: 'ALL', label: 'Tất cả sửa đổi' },
+  { key: 'STAFF_OUT', label: 'Nhân viên tiêu hao (-)' },
+  { key: 'OWNER_IN', label: 'Chủ đã nhập (+)' },
+  { key: 'ALL_OUT', label: 'Tất cả xuất/hỏng (-)' },
+  { key: 'OTHER', label: 'Hoàn tác / Khác' },
+];
+
+function getAuditBadge(item: StockMovement): {
+  label: string;
+  tone: 'primary' | 'secondary' | 'warning' | 'danger';
+} {
+  switch (item.movement_type) {
+    case 'IN_PURCHASE':
+      return { label: 'Chủ nhập thêm (+)', tone: 'primary' };
+    case 'OUT_CONSUMPTION':
+      return {
+        label: item.user_role === 'STAFF' ? 'Nhân viên tiêu hao (-)' : 'Chủ xuất tiêu hao (-)',
+        tone: 'secondary',
+      };
+    case 'OUT_DAMAGE_EXPIRED':
+      return { label: 'Báo hỏng / Hủy (-)', tone: 'danger' };
+    case 'REVERSAL':
+      return { label: 'Hoàn tác đính chính', tone: 'warning' };
+    case 'PACK_BREAK':
+      return { label: 'Khui thùng / Xé lẻ', tone: 'secondary' };
+    case 'ADJUST_STOCKTAKE':
+      return { label: 'Cân bằng kiểm kê', tone: 'secondary' };
+    default:
+      return { label: item.movement_type, tone: 'secondary' };
+  }
+}
+
+function getActorRoleLabel(role?: string | null): string {
+  if (role === 'MANAGER') return 'Chủ kho';
+  if (role === 'STAFF') return 'Nhân viên';
+  return 'Hệ thống';
+}
+
+function isWithinReversalWindow(createdAt: string): boolean {
+  const normalized = createdAt.endsWith('Z') ? createdAt : `${createdAt}Z`;
+  const parsed = Date.parse(normalized);
+  if (Number.isNaN(parsed)) return true;
+  const elapsedMinutes = (Date.now() - parsed) / 60000;
+  return elapsedMinutes <= 16;
+}
+
+const ProductAuditCard = React.memo(
   ({
     item,
-    isStaffBlindOpen,
-    canToggleImplied,
-    impliedOverride,
-    onToggleImplied,
+    onInspectProduct,
   }: {
-    item: StocktakeItem;
-    isStaffBlindOpen: boolean;
-    canToggleImplied: boolean;
-    impliedOverride: boolean;
-    onToggleImplied: (productId: number, val: boolean) => void;
+    item: ProductAuditSummary;
+    onInspectProduct: (productId: number) => void;
   }) => {
     const theme = useTheme();
-    const variance = item.variance_qty;
-    const isNegative = variance !== null && variance < 0;
-
     return (
-      <View style={[styles.card, { backgroundColor: theme.surface, borderColor: theme.border }]}>
+      <Pressable
+        onPress={() => {
+          void triggerLightHaptic();
+          onInspectProduct(item.product_id);
+        }}
+        accessibilityRole="button"
+        accessibilityLabel={`Xem lịch sử sửa đổi của ${item.name}`}
+        android_ripple={{ color: theme.ripple }}
+        style={({ pressed }) => [
+          styles.card,
+          { backgroundColor: theme.surface, borderColor: theme.border, opacity: pressed ? 0.88 : 1 },
+        ]}
+      >
         <View style={styles.rowBetween}>
-          <Text style={[styles.itemName, { color: theme.text }]} numberOfLines={1}>
-            {item.name}
-          </Text>
-          <StatusPill
-            text={`${formatNumber(item.counted_qty)} ${item.unit}`}
-            tone={isNegative ? 'warning' : 'primary'}
-          />
+          <View style={styles.flexOne}>
+            <Text style={[styles.itemName, { color: theme.text }]} numberOfLines={2}>
+              {item.name}
+            </Text>
+            <Text style={[styles.metaText, { color: theme.textMuted }]}>SKU: {item.sku}</Text>
+          </View>
+          <StatusPill text={`Tồn: ${formatNumber(item.current_stock)} ${item.unit}`} tone="secondary" />
         </View>
 
-        {isStaffBlindOpen ? (
-          <Text style={[styles.subText, { color: theme.secondary }]}>
-            Kiểm kê mù: Số tồn máy được ẩn · Thực đếm: {formatNumber(item.counted_qty)} {item.unit}
-            {item.gauge_percent !== null ? ` (~${item.gauge_percent}%)` : ''}
-          </Text>
-        ) : (
-          <Text style={[styles.subText, { color: theme.textMuted }]}>
-            Tồn máy: {item.system_qty_snapshot !== null ? formatNumber(item.system_qty_snapshot) : '—'}{' '}
-            · Thực đếm: {formatNumber(item.counted_qty)} · Lệch:{' '}
-            {variance !== null ? `${variance > 0 ? '+' : ''}${formatNumber(variance)}` : '—'}{' '}
-            {item.unit}
-          </Text>
-        )}
-
-        {canToggleImplied && isNegative ? (
-          <View style={[styles.impliedRow, { backgroundColor: theme.surfaceAlt }]}>
-            <Text style={[styles.subText, { color: theme.text, flex: 1 }]}>
-              Tính phần hụt là Tiêu thụ thực tế (AI học)
+        <View style={styles.splitRow}>
+          <View style={[styles.auditStatBox, { backgroundColor: theme.surfaceAlt, borderColor: theme.border }]}>
+            <Text style={[styles.auditStatLabel, { color: theme.textMuted }]}>Nhân viên tiêu hao</Text>
+            <Text style={[styles.auditStatValue, { color: theme.danger }]}>
+              -{formatNumber(item.staff_consumed_qty)} {item.unit}
             </Text>
-            <Switch
-              value={impliedOverride}
-              onValueChange={(v) => onToggleImplied(item.product_id, v)}
-              trackColor={{ false: theme.border, true: theme.primarySoft }}
-              thumbColor={impliedOverride ? theme.primary : theme.textMuted}
-            />
+            <Text style={[styles.metaText, { color: theme.textMuted }]}>
+              {item.staff_consumed_count} lần xuất
+              {item.manager_consumed_qty > 0
+                ? ` · Chủ xuất: -${formatNumber(item.manager_consumed_qty)} ${item.unit}`
+                : ''}
+            </Text>
           </View>
+
+          <View style={[styles.auditStatBox, { backgroundColor: theme.primarySoft, borderColor: theme.primary }]}>
+            <Text style={[styles.auditStatLabel, { color: theme.textMuted }]}>Chủ đã nhập thêm</Text>
+            <Text style={[styles.auditStatValue, { color: theme.primary }]}>
+              +{formatNumber(item.owner_imported_qty)} {item.unit}
+            </Text>
+            <Text style={[styles.metaText, { color: theme.textMuted }]}>
+              {item.owner_imported_count} lần nhập
+            </Text>
+          </View>
+        </View>
+
+        <Text style={[styles.linkHint, { color: theme.primary }]}>
+          {item.last_modified_at
+            ? `Sửa gần nhất: ${formatShortDate(item.last_modified_at)} · Chạm để xem lịch sử →`
+            : 'Chạm để lọc nhật ký của mặt hàng này →'}
+        </Text>
+      </Pressable>
+    );
+  },
+);
+
+const AuditMovementCard = React.memo(
+  ({
+    item,
+    isManager,
+    onReverse,
+  }: {
+    item: StockMovement;
+    isManager: boolean;
+    onReverse: (mv: StockMovement) => void;
+  }) => {
+    const theme = useTheme();
+    const badge = getAuditBadge(item);
+    const isReversibleType =
+      item.movement_type === 'OUT_CONSUMPTION' ||
+      item.movement_type === 'OUT_DAMAGE_EXPIRED' ||
+      item.movement_type === 'IN_PURCHASE';
+    const canReverse =
+      !item.is_reversed &&
+      isReversibleType &&
+      (isManager || isWithinReversalWindow(item.created_at));
+
+    const unit = item.product_unit || 'ĐV';
+    const beforeQty =
+      typeof item.balance_before === 'number'
+        ? item.balance_before
+        : Number((item.balance_after - item.quantity_delta).toFixed(3));
+    const isPositive = item.quantity_delta > 0;
+    const deltaLabel = isPositive
+      ? `+${formatNumber(item.quantity_delta)}`
+      : formatNumber(item.quantity_delta);
+
+    return (
+      <View
+        style={[
+          styles.card,
+          {
+            backgroundColor: theme.surface,
+            borderColor: item.is_reversed ? theme.warning : theme.border,
+          },
+        ]}
+      >
+        <View style={styles.rowBetween}>
+          <Text style={[styles.itemName, { color: theme.text }]} numberOfLines={2}>
+            {item.product_name || `Sản phẩm #${item.product_id}`}
+          </Text>
+          <StatusPill text={badge.label} tone={badge.tone} />
+        </View>
+
+        <View style={[styles.mathBox, { backgroundColor: theme.surfaceAlt, borderColor: theme.border }]}>
+          <Text style={[styles.mathLine, { color: theme.text }]}>
+            Trước: {formatNumber(beforeQty)} {unit}{'  →  '}
+            <Text style={{ color: isPositive ? theme.primary : theme.danger }}>
+              {deltaLabel} {unit}
+            </Text>
+            {'  →  '}Còn: {formatNumber(item.balance_after)} {unit}
+          </Text>
+          {item.unit_entered && item.unit_entered !== unit && item.quantity_entered ? (
+            <Text style={[styles.metaText, { color: theme.textMuted }]}>
+              (Đơn vị thao tác: {formatNumber(item.quantity_entered)} {item.unit_entered})
+            </Text>
+          ) : null}
+        </View>
+
+        <View style={styles.actorRow}>
+          <Ionicons
+            name={item.user_role === 'MANAGER' ? 'shield-checkmark-outline' : 'person-outline'}
+            size={16}
+            color={item.user_role === 'MANAGER' ? theme.primary : theme.secondary}
+          />
+          <Text style={[styles.subText, { color: theme.textMuted, flex: 1 }]}>
+            {getActorRoleLabel(item.user_role)}: {item.user_name || 'Hệ thống'}
+            {item.user_username ? ` (@${item.user_username})` : ''} · {formatShortDate(item.occurred_at)}
+          </Text>
+        </View>
+
+        {item.note ? (
+          <Text style={[styles.noteText, { color: theme.textMuted }]}>Ghi chú: {item.note}</Text>
+        ) : null}
+
+        {item.is_reversed ? (
+          <Text style={[styles.reversedLabel, { color: theme.warning }]}>
+            Đã hoàn tác đính chính (Không tính vào tổng tiêu hao / nhập hàng)
+          </Text>
+        ) : canReverse ? (
+          <Pressable
+            onPress={() => onReverse(item)}
+            accessibilityRole="button"
+            accessibilityLabel={`Đính chính hoàn tác giao dịch ${item.id}`}
+            android_ripple={{ color: theme.ripple }}
+            style={({ pressed }) => [
+              styles.reverseBtn,
+              { backgroundColor: theme.warningSoft, opacity: pressed ? 0.75 : 1 },
+            ]}
+          >
+            <Ionicons name="arrow-undo-outline" size={18} color={theme.warning} />
+            <Text style={[styles.reverseBtnText, { color: theme.text }]}>
+              {isManager ? 'Đính chính / Hoàn tác' : 'Đính chính (Hoàn tác 15p)'}
+            </Text>
+          </Pressable>
         ) : null}
       </View>
     );
@@ -98,384 +266,292 @@ export function StocktakeScreen() {
   const user = useAuthStore((s) => s.user);
   const isManager = user?.role === 'MANAGER';
 
-  const [selectedSessionId, setSelectedSessionId] = useState<number | null>(null);
-  const [selectedProductId, setSelectedProductId] = useState<number | null>(null);
-  const [countedText, setCountedText] = useState('');
-  const [scannerOpen, setScannerOpen] = useState(false);
-  const [newModalOpen, setNewModalOpen] = useState(false);
-  const [newTitle, setNewTitle] = useState('Kiểm kê cuối ca');
-  const [newIsBlind, setNewIsBlind] = useState(true);
-  const [impliedOverrides, setImpliedOverrides] = useState<Record<number, boolean>>({});
+  const [viewMode, setViewMode] = useState<AuditViewMode>('log');
+  const [timeframe, setTimeframe] = useState<TimeframeKey>('ALL');
+  const [actionFilter, setActionFilter] = useState<ActionFilterKey>('ALL');
+  const [selectedProductFilter, setSelectedProductFilter] = useState<string>('ALL');
   const [notice, setNotice] = useState<string | null>(null);
-  const [busy, setBusy] = useState(false);
 
-  const sessionsQuery = useQuery({
-    queryKey: ['stocktakes'],
-    queryFn: api.listStocktakes,
-  });
+  const daysParam = timeframe === 'ALL' ? undefined : Number(timeframe);
+  const productIdParam =
+    selectedProductFilter === 'ALL' ? undefined : Number(selectedProductFilter);
 
   const productsQuery = useQuery({
     queryKey: ['products'],
     queryFn: () => api.listProducts(),
   });
 
-  const sessions = sessionsQuery.data || [];
+  const summaryQuery = useQuery({
+    queryKey: ['movements-summary', timeframe],
+    queryFn: () => api.getMovementsSummary(daysParam),
+  });
+
+  const movementsQuery = useQuery({
+    queryKey: ['movements', 'audit', timeframe, actionFilter, selectedProductFilter],
+    queryFn: () =>
+      api.listMovements({
+        product_id: productIdParam,
+        days: daysParam,
+        actor_role: actionFilter === 'STAFF_OUT' ? 'STAFF' : undefined,
+        movement_type: actionFilter === 'OWNER_IN' ? 'IN_PURCHASE' : undefined,
+        limit: 250,
+      }),
+    enabled: viewMode === 'log',
+  });
+
+  const summary = summaryQuery.data;
   const products = productsQuery.data || [];
 
-  const activeSession = useMemo(
-    () => sessions.find((s) => s.id === selectedSessionId) || sessions[0] || null,
-    [sessions, selectedSessionId],
-  );
-
-  const activeProduct = useMemo(
-    () => products.find((p) => p.id === selectedProductId) || products[0] || null,
-    [products, selectedProductId],
-  );
-
-  useEffect(() => {
-    if (!activeSession) return;
-    const nextMap: Record<number, boolean> = {};
-    for (const item of activeSession.items) {
-      nextMap[item.product_id] = item.treat_negative_variance_as_consumption;
-    }
-    setImpliedOverrides(nextMap);
-  }, [activeSession]);
-
-  const sessionChips = useMemo<ChipOption[]>(
-    () =>
-      sessions.map((s) => ({
-        key: String(s.id),
-        label: `#${s.id} (${s.status})`,
-      })),
-    [sessions],
-  );
-
-  const productChips = useMemo<ChipOption[]>(
-    () => products.map((p) => ({ key: String(p.id), label: p.name })),
+  const productFilterChips = useMemo<ChipOption[]>(
+    () => [
+      { key: 'ALL', label: 'Tất cả mặt hàng' },
+      ...products.map((p) => ({ key: String(p.id), label: p.name })),
+    ],
     [products],
   );
 
+  const filteredMovements = useMemo(() => {
+    const raw = movementsQuery.data || [];
+    if (actionFilter === 'STAFF_OUT' || actionFilter === 'ALL_OUT') {
+      return raw.filter(
+        (m) => m.movement_type === 'OUT_CONSUMPTION' || m.movement_type === 'OUT_DAMAGE_EXPIRED',
+      );
+    }
+    if (actionFilter === 'OTHER') {
+      return raw.filter(
+        (m) =>
+          m.movement_type === 'REVERSAL' ||
+          m.movement_type === 'PACK_BREAK' ||
+          m.movement_type === 'ADJUST_STOCKTAKE',
+      );
+    }
+    return raw;
+  }, [movementsQuery.data, actionFilter]);
+
+  const selectedProductSummary = useMemo(() => {
+    if (selectedProductFilter === 'ALL' || !summary) return null;
+    const pid = Number(selectedProductFilter);
+    return summary.products.find((p) => p.product_id === pid) || null;
+  }, [selectedProductFilter, summary]);
+
   const refreshAll = useCallback(() => {
-    void queryClient.invalidateQueries({ queryKey: ['stocktakes'] });
-    void queryClient.invalidateQueries({ queryKey: ['products'] });
     void queryClient.invalidateQueries({ queryKey: ['movements'] });
+    void queryClient.invalidateQueries({ queryKey: ['movements-summary'] });
+    void queryClient.invalidateQueries({ queryKey: ['products'] });
     void queryClient.invalidateQueries({ queryKey: ['forecast-overview'] });
   }, [queryClient]);
 
-  const handleCreateSession = useCallback(async () => {
-    if (!newTitle.trim()) return;
-    setBusy(true);
-    try {
-      const created = await api.createStocktake(newTitle.trim(), newIsBlind);
-      await triggerSuccessHaptic();
-      setSelectedSessionId(created.id);
-      setNewModalOpen(false);
-      setNotice(`Đã mở phiên kiểm kê #${created.id}.`);
-      refreshAll();
-    } catch (err) {
-      setNotice(err instanceof Error ? err.message : 'Không thể tạo phiên kiểm kê.');
-    } finally {
-      setBusy(false);
-    }
-  }, [newTitle, newIsBlind, refreshAll]);
+  const handleReverse = useCallback(
+    async (mv: StockMovement) => {
+      const runReverse = async () => {
+        try {
+          await api.reverseMovement(mv.id, 'Đính chính thao tác nhập/xuất nhầm');
+          await triggerSuccessHaptic();
+          setNotice(
+            `Đã hoàn tác giao dịch #${mv.id} (${mv.product_name || 'SP'}) bằng bút toán REVERSAL.`,
+          );
+          refreshAll();
+        } catch (err) {
+          setNotice(err instanceof Error ? err.message : 'Không thể hoàn tác giao dịch này.');
+        }
+      };
 
-  const handleRecordCount = useCallback(
-    async (opts: { countedQty?: number; gaugePercent?: number }) => {
-      if (!activeSession || !activeProduct) return;
-      setBusy(true);
-      setNotice(null);
-      try {
-        await api.scanStocktakeItem(activeSession.id, {
-          product_id: activeProduct.id,
-          counted_qty: opts.countedQty,
-          gauge_percent: opts.gaugePercent,
-        });
-        await triggerSuccessHaptic();
-        setCountedText('');
-        setNotice(`Đã ghi nhận kiểm kê cho "${activeProduct.name}".`);
-        refreshAll();
-      } catch (err) {
-        setNotice(err instanceof Error ? err.message : 'Không thể lưu kiểm kê.');
-      } finally {
-        setBusy(false);
-      }
-    },
-    [activeSession, activeProduct, refreshAll],
-  );
-
-  const handleBarcodeScan = useCallback(
-    (code: string) => {
-      setScannerOpen(false);
-      const found = products.find(
-        (p) => p.barcode === code || p.sku.toUpperCase() === code.toUpperCase(),
-      );
-      if (!found) {
-        setNotice(`Không tìm thấy sản phẩm khớp mã "${code}".`);
+      if (Platform.OS === 'web') {
+        void runReverse();
         return;
       }
-      setSelectedProductId(found.id);
-      setNotice(`Đã chọn "${found.name}". Nhập số lượng thực đếm rồi bấm Lưu.`);
+
+      Alert.alert(
+        'Xác nhận hoàn tác / đính chính',
+        `Tạo bút toán bù trừ hoàn lại ${formatNumber(Math.abs(mv.quantity_delta))} ${mv.product_unit || ''}?`,
+        [
+          { text: 'Hủy', style: 'cancel' },
+          { text: 'Đính chính ngay', onPress: () => void runReverse() },
+        ],
+      );
     },
-    [products],
+    [refreshAll],
   );
 
-  const handleSubmit = useCallback(async () => {
-    if (!activeSession) return;
-    setBusy(true);
-    try {
-      await api.submitStocktake(activeSession.id);
-      await triggerSuccessHaptic();
-      setNotice('Đã gửi phiên kiểm kê cho Quản lý đối soát và duyệt.');
-      refreshAll();
-    } catch (err) {
-      setNotice(err instanceof Error ? err.message : 'Không thể gửi phiên kiểm kê.');
-    } finally {
-      setBusy(false);
-    }
-  }, [activeSession, refreshAll]);
-
-  const handleApprove = useCallback(async () => {
-    if (!activeSession) return;
-    setBusy(true);
-    try {
-      const options = Object.entries(impliedOverrides).map(([pid, val]) => ({
-        product_id: Number(pid),
-        treat_negative_variance_as_consumption: val,
-      }));
-      await api.approveStocktake(activeSession.id, options);
-      await triggerSuccessHaptic();
-      setNotice('Đã duyệt kiểm kê và ghi bút toán cân bằng vào Sổ cái.');
-      refreshAll();
-    } catch (err) {
-      setNotice(err instanceof Error ? err.message : 'Không thể duyệt kiểm kê.');
-    } finally {
-      setBusy(false);
-    }
-  }, [activeSession, impliedOverrides, refreshAll]);
-
-  const handleToggleImplied = useCallback((productId: number, val: boolean) => {
-    void triggerLightHaptic();
-    setImpliedOverrides((prev) => ({ ...prev, [productId]: val }));
+  const handleInspectProduct = useCallback((productId: number) => {
+    setSelectedProductFilter(String(productId));
+    setActionFilter('ALL');
+    setViewMode('log');
   }, []);
 
-  const isStaffBlindOpen = Boolean(
-    activeSession && !isManager && activeSession.is_blind && activeSession.status === 'OPEN',
-  );
-
-  const renderLineItem = useCallback(
-    ({ item }: { item: StocktakeItem }) => (
-      <StocktakeLineCard
+  const renderMovementItem = useCallback(
+    ({ item }: { item: StockMovement }) => (
+      <AuditMovementCard
         item={item}
-        isStaffBlindOpen={isStaffBlindOpen}
-        canToggleImplied={Boolean(isManager && activeSession && activeSession.status !== 'APPROVED')}
-        impliedOverride={impliedOverrides[item.product_id] ?? item.treat_negative_variance_as_consumption}
-        onToggleImplied={handleToggleImplied}
+        isManager={isManager}
+        onReverse={(mv) => void handleReverse(mv)}
       />
     ),
-    [isStaffBlindOpen, isManager, activeSession, impliedOverrides, handleToggleImplied],
+    [isManager, handleReverse],
+  );
+
+  const renderProductAuditItem = useCallback(
+    ({ item }: { item: ProductAuditSummary }) => (
+      <ProductAuditCard item={item} onInspectProduct={handleInspectProduct} />
+    ),
+    [handleInspectProduct],
+  );
+
+  const listHeader = useMemo(
+    () => (
+      <View style={styles.headerSections}>
+        <View style={styles.kpiRow}>
+          <View style={[styles.kpiCard, { backgroundColor: theme.surface, borderColor: theme.danger }]}>
+            <Text style={[styles.kpiTitle, { color: theme.textMuted }]}>Nhân viên đã tiêu hao</Text>
+            <Text style={[styles.kpiVal, { color: theme.danger }]}>
+              -{formatNumber(summary?.staff_consumed_total ?? 0)}
+            </Text>
+            <Text style={[styles.metaText, { color: theme.textMuted }]}>
+              {summary?.staff_consumed_events ?? 0} lượt xuất bởi Nhân viên
+              {(summary?.manager_consumed_total ?? 0) > 0
+                ? ` · Chủ xuất: -${formatNumber(summary?.manager_consumed_total ?? 0)}`
+                : ''}
+            </Text>
+          </View>
+
+          <View style={[styles.kpiCard, { backgroundColor: theme.surface, borderColor: theme.primary }]}>
+            <Text style={[styles.kpiTitle, { color: theme.textMuted }]}>Chủ shop đã nhập</Text>
+            <Text style={[styles.kpiVal, { color: theme.primary }]}>
+              +{formatNumber(summary?.owner_imported_total ?? 0)}
+            </Text>
+            <Text style={[styles.metaText, { color: theme.textMuted }]}>
+              {summary?.owner_imported_events ?? 0} lượt nhập kho
+            </Text>
+          </View>
+        </View>
+
+        {viewMode === 'log' ? (
+          <View style={styles.filterBlock}>
+            <Text style={[styles.filterHeading, { color: theme.textMuted }]}>
+              Lọc theo loại biến động:
+            </Text>
+            <ChipRow
+              options={ACTION_FILTER_OPTIONS}
+              selectedKey={actionFilter}
+              onSelect={(k) => setActionFilter(k as ActionFilterKey)}
+            />
+
+            <Text style={[styles.filterHeading, { color: theme.textMuted }]}>
+              Lọc theo mặt hàng:
+            </Text>
+            <ChipRow
+              options={productFilterChips}
+              selectedKey={selectedProductFilter}
+              onSelect={setSelectedProductFilter}
+            />
+
+            {selectedProductSummary ? (
+              <View
+                style={[
+                  styles.selectedProductCard,
+                  { backgroundColor: theme.primarySoft, borderColor: theme.primary },
+                ]}
+              >
+                <Text style={[styles.itemName, { color: theme.text }]}>
+                  Đối soát: {selectedProductSummary.name}
+                </Text>
+                <Text style={[styles.subText, { color: theme.text }]}>
+                  Chủ đã nhập: +{formatNumber(selectedProductSummary.owner_imported_qty)}{' '}
+                  {selectedProductSummary.unit} · Nhân viên tiêu hao: -
+                  {formatNumber(selectedProductSummary.staff_consumed_qty)} {selectedProductSummary.unit}{' '}
+                  · Tồn hiện tại: {formatNumber(selectedProductSummary.current_stock)}{' '}
+                  {selectedProductSummary.unit}
+                </Text>
+              </View>
+            ) : null}
+
+            <Text style={[styles.sectionSub, { color: theme.textMuted }]}>
+              Nhật ký sửa đổi ({filteredMovements.length} bản ghi):
+            </Text>
+          </View>
+        ) : (
+          <Text style={[styles.sectionSub, { color: theme.textMuted }]}>
+            Tổng hợp theo từng mặt hàng ({summary?.products.length ?? 0} SP):
+          </Text>
+        )}
+      </View>
+    ),
+    [
+      theme,
+      summary,
+      viewMode,
+      actionFilter,
+      productFilterChips,
+      selectedProductFilter,
+      selectedProductSummary,
+      filteredMovements.length,
+    ],
   );
 
   return (
     <View style={[styles.container, { backgroundColor: theme.bg }]}>
       <View style={[styles.topPanel, { backgroundColor: theme.surface, borderBottomColor: theme.border }]}>
-        <View style={styles.rowBetween}>
-          <Text style={[styles.headerTitle, { color: theme.text }]}>Phiên kiểm kê kho</Text>
-          <ActionButton
-            label="+ Phiên mới"
-            variant="outline"
-            onPress={() => setNewModalOpen(true)}
-          />
-        </View>
-        {sessionChips.length > 0 ? (
-          <ChipRow
-            options={sessionChips}
-            selectedKey={activeSession ? String(activeSession.id) : ''}
-            onSelect={(k) => setSelectedSessionId(Number(k))}
-          />
-        ) : null}
+        <Text style={[styles.headerTitle, { color: theme.text }]}>
+          Kiểm kê & Lịch sử sửa đổi kho
+        </Text>
+        <ChipRow
+          options={VIEW_MODE_OPTIONS}
+          selectedKey={viewMode}
+          onSelect={(k) => setViewMode(k as AuditViewMode)}
+        />
+        <ChipRow
+          options={TIMEFRAME_OPTIONS}
+          selectedKey={timeframe}
+          onSelect={(k) => setTimeframe(k as TimeframeKey)}
+        />
         {notice ? <Text style={[styles.noticeText, { color: theme.secondary }]}>{notice}</Text> : null}
       </View>
 
-      <FlatList
-        data={activeSession?.items || []}
-        renderItem={renderLineItem}
-        keyExtractor={(item) => String(item.id)}
-        contentContainerStyle={styles.listContent}
-        refreshControl={
-          <RefreshControl
-            refreshing={sessionsQuery.isRefetching}
-            onRefresh={refreshAll}
-            tintColor={theme.primary}
-          />
-        }
-        ListHeaderComponent={
-          activeSession ? (
-            <View style={styles.headerSections}>
-              <View style={[styles.card, { backgroundColor: theme.surface, borderColor: theme.border }]}>
-                <View style={styles.rowBetween}>
-                  <Text style={[styles.itemName, { color: theme.text }]} numberOfLines={2}>
-                    {activeSession.title}
-                  </Text>
-                  <StatusPill
-                    text={activeSession.status}
-                    tone={
-                      activeSession.status === 'APPROVED'
-                        ? 'primary'
-                        : activeSession.status === 'SUBMITTED'
-                          ? 'warning'
-                          : 'secondary'
-                    }
-                  />
-                </View>
-
-                {isStaffBlindOpen ? (
-                  <View style={[styles.blindNotice, { backgroundColor: theme.secondarySoft }]}>
-                    <Ionicons name="eye-off-outline" size={20} color={theme.secondary} />
-                    <Text style={[styles.subText, { color: theme.text, flex: 1 }]}>
-                      Chế độ Kiểm kê mù (Blind Count): Số tồn máy được ẩn để chống đối phó số liệu.
-                    </Text>
-                  </View>
-                ) : null}
-
-                {activeSession.status === 'OPEN' ? (
-                  <View style={styles.gapSm}>
-                    <View style={styles.rowBetween}>
-                      <Text style={[styles.subText, { color: theme.textMuted }]}>Chọn mặt hàng kiểm:</Text>
-                      <ActionButton
-                        label="Quét mã"
-                        icon="barcode-outline"
-                        variant="secondary"
-                        onPress={() => setScannerOpen(true)}
-                      />
-                    </View>
-                    <ChipRow
-                      options={productChips}
-                      selectedKey={activeProduct ? String(activeProduct.id) : ''}
-                      onSelect={(k) => setSelectedProductId(Number(k))}
-                    />
-
-                    {activeProduct?.tracking_type === 'CONSUMABLE' ? (
-                      <View style={styles.gapSm}>
-                        <Text style={[styles.subText, { color: theme.primary }]}>
-                          Ước lượng vật tư nhỏ lẻ (% mức đầy):
-                        </Text>
-                        <ChipRow
-                          options={GAUGE_PRESETS}
-                          selectedKey=""
-                          onSelect={(k) => void handleRecordCount({ gaugePercent: Number(k) })}
-                        />
-                      </View>
-                    ) : null}
-
-                    <View style={styles.countRow}>
-                      <TextInput
-                        value={countedText}
-                        onChangeText={setCountedText}
-                        keyboardType="numeric"
-                        placeholder={`Nhập số thực đếm (${activeProduct?.unit || 'ĐV'})`}
-                        placeholderTextColor={theme.textMuted}
-                        style={[
-                          styles.input,
-                          styles.flexOne,
-                          {
-                            backgroundColor: theme.surfaceAlt,
-                            color: theme.text,
-                            borderColor: theme.border,
-                          },
-                        ]}
-                      />
-                      <ActionButton
-                        label="Lưu đếm"
-                        loading={busy}
-                        onPress={() => {
-                          const num = Number(countedText.replace(',', '.'));
-                          if (!Number.isNaN(num) && num >= 0) {
-                            void handleRecordCount({ countedQty: num });
-                          }
-                        }}
-                      />
-                    </View>
-
-                    <ActionButton
-                      label="Gửi Quản lý duyệt phiên này"
-                      icon="send-outline"
-                      variant="outline"
-                      loading={busy}
-                      onPress={() => void handleSubmit()}
-                    />
-                  </View>
-                ) : null}
-
-                {isManager && activeSession.status !== 'APPROVED' ? (
-                  <ActionButton
-                    label="Duyệt lệch & Cân bằng Sổ cái"
-                    icon="checkmark-done-circle-outline"
-                    loading={busy}
-                    onPress={() => void handleApprove()}
-                  />
-                ) : null}
-              </View>
-              <Text style={[styles.sectionSub, { color: theme.textMuted }]}>
-                Danh sách đã kiểm ({activeSession.items.length} mặt hàng):
+      {viewMode === 'log' ? (
+        <FlatList
+          data={filteredMovements}
+          renderItem={renderMovementItem}
+          keyExtractor={(item) => String(item.id)}
+          ListHeaderComponent={listHeader}
+          contentContainerStyle={styles.listContent}
+          refreshControl={
+            <RefreshControl
+              refreshing={movementsQuery.isRefetching || summaryQuery.isRefetching}
+              onRefresh={refreshAll}
+              tintColor={theme.primary}
+            />
+          }
+          ListEmptyComponent={
+            <View style={styles.emptyBox}>
+              <Text style={[styles.subText, { color: theme.textMuted }]}>
+                Chưa có lịch sử sửa đổi khớp bộ lọc.
               </Text>
             </View>
-          ) : undefined
-        }
-      />
-
-      <BarcodeScannerModal
-        visible={scannerOpen}
-        title="Quét mã vạch kiểm kê"
-        onScan={handleBarcodeScan}
-        onClose={() => setScannerOpen(false)}
-      />
-
-      <Modal visible={newModalOpen} animationType="slide" onRequestClose={() => setNewModalOpen(false)}>
-        <SafeAreaView style={[styles.container, { backgroundColor: theme.bg }]}>
-          <View style={[styles.modalHeader, { backgroundColor: theme.surface, borderBottomColor: theme.border }]}>
-            <Text style={[styles.headerTitle, { color: theme.text }]}>Mở phiên kiểm kê mới</Text>
-            <Pressable
-              onPress={() => setNewModalOpen(false)}
-              accessibilityRole="button"
-              accessibilityLabel="Đóng tạo phiên kiểm kê"
-              android_ripple={{ color: theme.ripple }}
-              style={({ pressed }) => [
-                styles.closeBtn,
-                { backgroundColor: theme.surfaceAlt, opacity: pressed ? 0.75 : 1 },
-              ]}
-            >
-              <Ionicons name="close" size={24} color={theme.text} />
-            </Pressable>
-          </View>
-          <View style={styles.modalBody}>
-            <Text style={[styles.subText, { color: theme.textMuted }]}>Tên phiên kiểm kê</Text>
-            <TextInput
-              value={newTitle}
-              onChangeText={setNewTitle}
-              style={[
-                styles.input,
-                { backgroundColor: theme.surfaceAlt, color: theme.text, borderColor: theme.border },
-              ]}
+          }
+        />
+      ) : (
+        <FlatList
+          data={summary?.products || []}
+          renderItem={renderProductAuditItem}
+          keyExtractor={(item) => String(item.product_id)}
+          ListHeaderComponent={listHeader}
+          contentContainerStyle={styles.listContent}
+          refreshControl={
+            <RefreshControl
+              refreshing={summaryQuery.isRefetching}
+              onRefresh={refreshAll}
+              tintColor={theme.primary}
             />
-            <View style={[styles.impliedRow, { backgroundColor: theme.surface }]}>
-              <Text style={[styles.subText, { color: theme.text, flex: 1 }]}>
-                Bật Kiểm kê mù (Ẩn tồn máy với Nhân viên)
+          }
+          ListEmptyComponent={
+            <View style={styles.emptyBox}>
+              <Text style={[styles.subText, { color: theme.textMuted }]}>
+                Kho chưa có mặt hàng nào.
               </Text>
-              <Switch
-                value={newIsBlind}
-                onValueChange={setNewIsBlind}
-                trackColor={{ false: theme.border, true: theme.primarySoft }}
-                thumbColor={newIsBlind ? theme.primary : theme.textMuted}
-              />
             </View>
-            <ActionButton
-              label="Tạo phiên kiểm kê"
-              loading={busy}
-              onPress={() => void handleCreateSession()}
-            />
-          </View>
-        </SafeAreaView>
-      </Modal>
+          }
+        />
+      )}
     </View>
   );
 }
@@ -498,11 +574,34 @@ const styles = StyleSheet.create({
     gap: SPACING.md,
     marginBottom: SPACING.xs,
   },
+  kpiRow: {
+    flexDirection: 'row',
+    gap: SPACING.sm,
+  },
+  kpiCard: {
+    flex: 1,
+    borderRadius: RADIUS.lg,
+    borderWidth: 1,
+    padding: SPACING.md,
+    gap: SPACING.xs,
+  },
+  kpiTitle: { fontSize: 12, fontWeight: '600' },
+  kpiVal: { fontSize: 22, fontWeight: '700' },
+  filterBlock: { gap: SPACING.xs },
+  filterHeading: { fontSize: 12, fontWeight: '600', marginTop: SPACING.xs },
+  selectedProductCard: {
+    borderRadius: RADIUS.md,
+    borderWidth: 1,
+    padding: SPACING.md,
+    gap: SPACING.xs,
+    marginTop: SPACING.xs,
+  },
+  sectionSub: { fontSize: 13, fontWeight: '600', marginTop: SPACING.xs },
   card: {
     borderRadius: RADIUS.lg,
     borderWidth: 1,
     padding: SPACING.lg,
-    gap: SPACING.md,
+    gap: SPACING.sm,
   },
   rowBetween: {
     flexDirection: 'row',
@@ -512,50 +611,44 @@ const styles = StyleSheet.create({
   },
   itemName: { fontSize: 15, fontWeight: '600', flex: 1 },
   subText: { fontSize: 13, lineHeight: 19 },
-  blindNotice: {
-    borderRadius: RADIUS.md,
-    padding: SPACING.md,
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: SPACING.sm,
-  },
-  gapSm: { gap: SPACING.sm },
-  countRow: {
+  metaText: { fontSize: 12, lineHeight: 17 },
+  splitRow: {
     flexDirection: 'row',
     gap: SPACING.sm,
-    alignItems: 'center',
   },
-  input: {
-    minHeight: TOUCH_MIN,
+  auditStatBox: {
+    flex: 1,
     borderRadius: RADIUS.md,
     borderWidth: 1,
-    paddingHorizontal: SPACING.md,
-    fontSize: 15,
-  },
-  impliedRow: {
-    borderRadius: RADIUS.md,
     padding: SPACING.md,
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: SPACING.sm,
+    gap: 2,
   },
-  sectionSub: { fontSize: 13, fontWeight: '600' },
-  modalHeader: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    padding: SPACING.lg,
-    borderBottomWidth: 1,
-  },
-  closeBtn: {
-    minWidth: TOUCH_MIN,
-    minHeight: TOUCH_MIN,
+  auditStatLabel: { fontSize: 11, fontWeight: '600' },
+  auditStatValue: { fontSize: 16, fontWeight: '700' },
+  linkHint: { fontSize: 12, fontWeight: '600' },
+  mathBox: {
     borderRadius: RADIUS.md,
-    justifyContent: 'center',
+    borderWidth: 1,
+    padding: SPACING.md,
+    gap: 2,
+  },
+  mathLine: { fontSize: 14, fontWeight: '600' },
+  actorRow: {
+    flexDirection: 'row',
     alignItems: 'center',
+    gap: SPACING.xs,
   },
-  modalBody: {
-    padding: SPACING.lg,
-    gap: SPACING.md,
+  noteText: { fontSize: 12, fontStyle: 'italic' },
+  reversedLabel: { fontSize: 12, fontWeight: '600' },
+  reverseBtn: {
+    minHeight: TOUCH_MIN,
+    paddingHorizontal: SPACING.md,
+    borderRadius: RADIUS.md,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: SPACING.xs,
+    alignSelf: 'flex-start',
   },
+  reverseBtnText: { fontSize: 13, fontWeight: '600' },
+  emptyBox: { padding: SPACING.xl, alignItems: 'center' },
 });

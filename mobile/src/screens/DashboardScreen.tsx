@@ -136,9 +136,9 @@ export function DashboardScreen() {
     queryFn: api.getForecastOverview,
   });
 
-  const stocktakesQuery = useQuery({
-    queryKey: ['stocktakes'],
-    queryFn: api.listStocktakes,
+  const summaryQuery = useQuery({
+    queryKey: ['movements-summary'],
+    queryFn: () => api.getMovementsSummary(),
   });
 
   const productsQuery = useQuery({
@@ -153,7 +153,7 @@ export function DashboardScreen() {
 
   const handleRefresh = useCallback(() => {
     void queryClient.invalidateQueries({ queryKey: ['forecast-overview'] });
-    void queryClient.invalidateQueries({ queryKey: ['stocktakes'] });
+    void queryClient.invalidateQueries({ queryKey: ['movements-summary'] });
     void queryClient.invalidateQueries({ queryKey: ['products'] });
     void queryClient.invalidateQueries({ queryKey: ['store-staff'] });
   }, [queryClient]);
@@ -268,7 +268,10 @@ export function DashboardScreen() {
 
   const overview = forecastQuery.data;
   const urgentItems = (overview?.items || []).filter((i) => i.status !== 'HEALTHY').slice(0, 4);
-  const pendingStocktakes = (stocktakesQuery.data || []).filter((s) => s.status !== 'APPROVED').length;
+  const movementEventsCount =
+    (summaryQuery.data?.staff_consumed_events ?? 0) +
+    (summaryQuery.data?.owner_imported_events ?? 0) +
+    (summaryQuery.data?.manager_consumed_events ?? 0);
   const totalProducts = productsQuery.data?.length ?? overview?.total_skus ?? 0;
   const staffMembers = staffQuery.data || [];
   const isDemoStore = store?.code === 'MOC_BAKERY';
@@ -362,11 +365,24 @@ export function DashboardScreen() {
               </Text>
               <Text style={[styles.kpiLabel, { color: theme.textMuted }]}>Cần nhập sớm</Text>
             </View>
-            <View style={[styles.kpiCard, { backgroundColor: theme.surface, borderColor: theme.border }]}>
+            <Pressable
+              onPress={() => setActiveTab('stocktake')}
+              accessibilityRole="button"
+              accessibilityLabel="Mở lịch sử kiểm kê"
+              android_ripple={{ color: theme.ripple }}
+              style={({ pressed }) => [
+                styles.kpiCard,
+                {
+                  backgroundColor: theme.surface,
+                  borderColor: theme.border,
+                  opacity: pressed ? 0.85 : 1,
+                },
+              ]}
+            >
               <Ionicons name="clipboard-outline" size={22} color={theme.warning} />
-              <Text style={[styles.kpiVal, { color: theme.text }]}>{pendingStocktakes}</Text>
-              <Text style={[styles.kpiLabel, { color: theme.textMuted }]}>Phiên kiểm kê mở</Text>
-            </View>
+              <Text style={[styles.kpiVal, { color: theme.text }]}>{movementEventsCount}</Text>
+              <Text style={[styles.kpiLabel, { color: theme.primary }]}>Lịch sử Kiểm kê →</Text>
+            </Pressable>
           </View>
         );
       }
@@ -514,7 +530,7 @@ export function DashboardScreen() {
       notice,
       totalProducts,
       overview,
-      pendingStocktakes,
+      movementEventsCount,
       urgentItems,
       renderAlertItem,
       staffMembers,

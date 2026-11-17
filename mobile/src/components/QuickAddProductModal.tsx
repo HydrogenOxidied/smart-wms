@@ -37,55 +37,27 @@ const TRACKING_OPTIONS: ChipOption[] = [
   { key: 'CONSUMABLE', label: 'Vật tư ước lượng %' },
 ];
 
-const DuplicateItemRow = React.memo(
-  ({
-    item,
-    onRestockExisting,
-  }: {
-    item: DuplicateWarningItem;
-    onRestockExisting?: (productId: number) => void;
-  }) => {
-    const theme = useTheme();
-    if (!onRestockExisting) {
-      return (
-        <View style={[styles.dupRow, { backgroundColor: theme.warningSoft }]}>
-          <Text style={[styles.dupTitle, { color: theme.text }]} numberOfLines={1}>
-            Đã có: {item.name} ({item.current_stock} {item.unit})
-          </Text>
-        </View>
-      );
-    }
-    return (
-      <Pressable
-        onPress={() => onRestockExisting(item.id)}
-        accessibilityRole="button"
-        accessibilityLabel={`Nhập thêm hàng cho ${item.name}`}
-        android_ripple={{ color: theme.ripple }}
-        style={({ pressed }) => [
-          styles.dupRow,
-          { backgroundColor: theme.warningSoft, opacity: pressed ? 0.82 : 1 },
-        ]}
-      >
-        <Text style={[styles.dupTitle, { color: theme.text }]} numberOfLines={2}>
-          Đã có: {item.name} ({item.current_stock} {item.unit}) · Chạm để +Nhập thêm
-        </Text>
-      </Pressable>
-    );
-  },
-);
+const DuplicateItemRow = React.memo(({ item }: { item: DuplicateWarningItem }) => {
+  const theme = useTheme();
+  return (
+    <View style={[styles.dupRow, { backgroundColor: theme.warningSoft }]}>
+      <Text style={[styles.dupTitle, { color: theme.text }]} numberOfLines={1}>
+        Đã có: {item.name} ({item.current_stock} {item.unit})
+      </Text>
+    </View>
+  );
+});
 
 export function QuickAddProductModal({
   visible,
   liteMode,
   onClose,
   onCreated,
-  onRestockExisting,
 }: {
   visible: boolean;
   liteMode: boolean;
   onClose: () => void;
   onCreated: (product: Product) => void;
-  onRestockExisting?: (productId: number) => void;
 }) {
   const theme = useTheme();
   const [name, setName] = useState('');
@@ -199,10 +171,8 @@ export function QuickAddProductModal({
   ]);
 
   const renderDup = useCallback(
-    ({ item }: { item: DuplicateWarningItem }) => (
-      <DuplicateItemRow item={item} onRestockExisting={onRestockExisting} />
-    ),
-    [onRestockExisting],
+    ({ item }: { item: DuplicateWarningItem }) => <DuplicateItemRow item={item} />,
+    [],
   );
 
   const dupKey = useCallback((item: DuplicateWarningItem) => String(item.id), []);

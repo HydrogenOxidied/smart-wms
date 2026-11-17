@@ -45,15 +45,15 @@ interface NavTabDef {
 const MANAGER_TABS: NavTabDef[] = [
   { key: 'dashboard', label: 'Tổng quan', icon: 'grid-outline' },
   { key: 'inventory', label: 'Kho hàng', icon: 'cube-outline' },
-  { key: 'consumption', label: 'Tiêu thụ', icon: 'swap-vertical-outline' },
-  { key: 'stocktake', label: 'Kiểm kê', icon: 'barcode-outline' },
+  { key: 'consumption', label: 'Xuất / Nhập', icon: 'swap-vertical-outline' },
+  { key: 'stocktake', label: 'Kiểm kê', icon: 'clipboard-outline' },
   { key: 'forecast', label: 'Dự báo AI', icon: 'analytics-outline' },
 ];
 
 const STAFF_TABS: NavTabDef[] = [
   { key: 'inventory', label: 'Kho hàng', icon: 'cube-outline' },
-  { key: 'consumption', label: 'Tiêu thụ', icon: 'swap-vertical-outline' },
-  { key: 'stocktake', label: 'Kiểm kê', icon: 'barcode-outline' },
+  { key: 'consumption', label: 'Xuất / Nhập', icon: 'swap-vertical-outline' },
+  { key: 'stocktake', label: 'Kiểm kê', icon: 'clipboard-outline' },
   { key: 'account', label: 'Tài khoản', icon: 'person-circle-outline' },
 ];
 

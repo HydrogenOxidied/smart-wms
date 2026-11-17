@@ -524,3 +524,119 @@ def test_mam_tep_template_and_unlimited_staff_management(client_and_db):
         headers=mgr_headers,
     )
     assert recreated.status_code == 201
+
+
+def test_audit_summary_and_manager_only_stockin(client_and_db):
+    client, _ = client_and_db
+
+    reg = client.post(
+        "/api/v1/auth/register-store",
+        json={
+            "store_name": "Shop Mắm Tép Audit",
+            "manager_username": "chu_audit",
+            "manager_full_name": "Chủ Shop Audit",
+            "manager_secret": "SAMPLE_Audit99!",
+            "staff_username": "nv_audit",
+            "staff_secret": "SAMPLE_StaffAudit99!",
+            "industry_template": "MAM_TEP",
+            "lite_mode": True,
+        },
+    )
+    assert reg.status_code == 201, reg.text
+    mgr_headers = {"Authorization": f"Bearer {reg.json()['access_token']}"}
+
+    staff_login = client.post(
+        "/api/v1/auth/login",
+        json={"username": "nv_audit", "secret": "SAMPLE_StaffAudit99!"},
+    )
+    assert staff_login.status_code == 200
+    staff_headers = {"Authorization": f"Bearer {staff_login.json()['access_token']}"}
+
+    products = client.get("/api/v1/products", headers=mgr_headers).json()
+    thung_500 = next(p for p in products if p["sku"] == "MT-THUNG-500")
+
+    before_summary = client.get("/api/v1/movements/summary", headers=mgr_headers).json()
+    before_prod = next(p for p in before_summary["products"] if p["product_id"] == thung_500["id"])
+
+    # STAFF cannot post IN_PURCHASE (only MANAGER can restock)
+    staff_in = client.post(
+        "/api/v1/movements",
+        json={
+            "product_id": thung_500["id"],
+            "movement_type": "IN_PURCHASE",
+            "quantity": 5,
+            "unit_mode": "BASE",
+            "idempotency_key": str(uuid.uuid4()),
+        },
+        headers=staff_headers,
+    )
+    assert staff_in.status_code == 403
+
+    # MANAGER posts IN_PURCHASE (+5 Thùng)
+    mgr_in = client.post(
+        "/api/v1/movements",
+        json={
+            "product_id": thung_500["id"],
+            "movement_type": "IN_PURCHASE",
+            "quantity": 5,
+            "unit_mode": "BASE",
+            "note": "Chủ shop nhập thêm 5 thùng",
+            "idempotency_key": str(uuid.uuid4()),
+        },
+        headers=mgr_headers,
+    )
+    assert mgr_in.status_code == 201, mgr_in.text
+    mgr_mv = mgr_in.json()
+    assert mgr_mv["user_role"] == "MANAGER"
+    assert mgr_mv["user_username"] == "chu_audit"
+    assert mgr_mv["balance_before"] == pytest.approx(15.0)
+    assert mgr_mv["balance_after"] == pytest.approx(20.0)
+
+    # STAFF consumes 3 Thùng, plus 2 Thùng mistaken and immediately reversed
+    staff_out = client.post(
+        "/api/v1/movements",
+        json={
+            "product_id": thung_500["id"],
+            "movement_type": "OUT_CONSUMPTION",
+            "quantity": 3,
+            "unit_mode": "BASE",
+            "note": "Xuất sỉ khách đặt",
+            "idempotency_key": str(uuid.uuid4()),
+        },
+        headers=staff_headers,
+    )
+    assert staff_out.status_code == 201
+    assert staff_out.json()["user_role"] == "STAFF"
+    assert staff_out.json()["balance_before"] == pytest.approx(20.0)
+    assert staff_out.json()["balance_after"] == pytest.approx(17.0)
+
+    mistake = client.post(
+        "/api/v1/movements",
+        json={
+            "product_id": thung_500["id"],
+            "movement_type": "OUT_CONSUMPTION",
+            "quantity": 2,
+            "unit_mode": "BASE",
+            "idempotency_key": str(uuid.uuid4()),
+        },
+        headers=staff_headers,
+    )
+    assert mistake.status_code == 201
+    rev = client.post(
+        f"/api/v1/movements/{mistake.json()['id']}/reverse",
+        json={"reason": "Nhập nhầm ca"},
+        headers=staff_headers,
+    )
+    assert rev.status_code == 201
+
+    after_summary = client.get("/api/v1/movements/summary", headers=mgr_headers).json()
+    after_prod = next(p for p in after_summary["products"] if p["product_id"] == thung_500["id"])
+    assert after_prod["owner_imported_qty"] - before_prod["owner_imported_qty"] == pytest.approx(5.0)
+    assert after_prod["staff_consumed_qty"] - before_prod["staff_consumed_qty"] == pytest.approx(3.0)
+    assert after_prod["current_stock"] == pytest.approx(17.0)
+
+    staff_only_logs = client.get(
+        "/api/v1/movements", params={"actor_role": "STAFF"}, headers=mgr_headers
+    ).json()
+    assert len(staff_only_logs) >= 2
+    assert all(m["user_role"] == "STAFF" for m in staff_only_logs)

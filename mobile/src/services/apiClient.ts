@@ -4,6 +4,7 @@ import {
   DuplicateWarningItem,
   ForecastOverview,
   ImportSummary,
+  LedgerAuditSummary,
   MovementCreateInput,
   Product,
   ProductCreateInput,
@@ -214,13 +215,27 @@ export const api = {
       body: JSON.stringify({ packs_to_break, idempotency_key }),
     }),
 
-  listMovements: (params?: { product_id?: number; limit?: number }) => {
+  listMovements: (params?: {
+    product_id?: number;
+    movement_type?: string;
+    actor_role?: string;
+    days?: number;
+    limit?: number;
+  }) => {
     const q = new URLSearchParams();
     if (params?.product_id) q.set('product_id', String(params.product_id));
+    if (params?.movement_type) q.set('movement_type', params.movement_type);
+    if (params?.actor_role) q.set('actor_role', params.actor_role);
+    if (params?.days) q.set('days', String(params.days));
     if (params?.limit) q.set('limit', String(params.limit));
     const qs = q.toString() ? `?${q.toString()}` : '';
     return requestJson<StockMovement[]>(`/movements${qs}`);
   },
+
+  getMovementsSummary: (days?: number) =>
+    requestJson<LedgerAuditSummary>(
+      days ? `/movements/summary?days=${days}` : '/movements/summary',
+    ),
 
   createMovement: (payload: MovementCreateInput) =>
     requestJson<StockMovement>('/movements', { method: 'POST', body: JSON.stringify(payload) }),

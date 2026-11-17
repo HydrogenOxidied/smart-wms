@@ -1,13 +1,20 @@
 """Immutable append-only stock ledger with idempotency, anomaly guard, and 15m reversal."""
-from datetime import timedelta
+from datetime import datetime, timedelta
 import math
+from typing import Any
 
 from fastapi import HTTPException, status
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.models.entities import Product, StockMovement, Store, User, utcnow_naive
-from app.schemas.api import MovementCreate, PackBreakRequest, StockMovementOut
+from app.schemas.api import (
+    LedgerAuditSummaryOut,
+    MovementCreate,
+    PackBreakRequest,
+    ProductAuditSummaryOut,
+    StockMovementOut,
+)
 
 REVERSAL_WINDOW_MINUTES = 15
 
@@ -22,6 +29,7 @@ def serialize_movement(db: Session, movement: StockMovement) -> StockMovementOut
         )
         is not None
     )
+    balance_before = round(movement.balance_after - movement.quantity_delta, 3)
     return StockMovementOut(
         id=movement.id,
         store_id=movement.store_id,
@@ -30,8 +38,11 @@ def serialize_movement(db: Session, movement: StockMovement) -> StockMovementOut
         product_unit=product.unit if product else None,
         user_id=movement.user_id,
         user_name=actor.full_name if actor else None,
+        user_username=actor.username if actor else None,
+        user_role=actor.role if actor else None,
         movement_type=movement.movement_type,
         quantity_delta=movement.quantity_delta,
+        balance_before=balance_before,
         balance_after=movement.balance_after,
         unit_entered=movement.unit_entered,
         quantity_entered=movement.quantity_entered,
@@ -105,6 +116,12 @@ def record_movement(
     )
     if not product or not store:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Không tìm thấy mặt hàng.")
+
+    if payload.movement_type == "IN_PURCHASE" and user.role != "MANAGER":
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Chỉ Chủ kho mới có quyền nhập thêm hàng vào kho.",
+        )
 
     multiplier = 1.0
     unit_label = product.unit
@@ -305,3 +322,121 @@ def reverse_movement(db: Session, user: User, movement_id: int, reason: str) -> 
     db.commit()
     db.refresh(reversal)
     return reversal
+
+
+def get_ledger_audit_summary(
+    db: Session, store_id: int, days: int | None = None
+) -> LedgerAuditSummaryOut:
+    """Aggregate net owner stock-ins and staff/manager consumptions per product and store."""
+    active_products = db.scalars(
+        select(Product)
+        .where(Product.store_id == store_id, Product.is_active.is_(True))
+        .order_by(Product.is_pinned.desc(), Product.name.asc())
+    ).all()
+
+    reversed_ids = set(
+        db.scalars(
+            select(StockMovement.reversed_movement_id).where(
+                StockMovement.store_id == store_id,
+                StockMovement.reversed_movement_id.is_not(None),
+            )
+        ).all()
+    )
+
+    stats: dict[int, dict[str, Any]] = {
+        prod.id: {
+            "product": prod,
+            "owner_imported_qty": 0.0,
+            "owner_imported_count": 0,
+            "staff_consumed_qty": 0.0,
+            "staff_consumed_count": 0,
+            "manager_consumed_qty": 0.0,
+            "last_modified_at": None,
+        }
+        for prod in active_products
+    }
+
+    stmt = (
+        select(StockMovement, User.role)
+        .outerjoin(User, StockMovement.user_id == User.id)
+        .where(StockMovement.store_id == store_id)
+    )
+    if days is not None:
+        since = utcnow_naive() - timedelta(days=days)
+        stmt = stmt.where(StockMovement.occurred_at >= since)
+
+    rows = db.execute(
+        stmt.order_by(StockMovement.occurred_at.desc(), StockMovement.id.desc())
+    ).all()
+
+    owner_imported_total = 0.0
+    owner_imported_events = 0
+    staff_consumed_total = 0.0
+    staff_consumed_events = 0
+    manager_consumed_total = 0.0
+    manager_consumed_events = 0
+
+    for mv, actor_role in rows:
+        entry = stats.get(mv.product_id)
+        if entry is not None:
+            prev_dt: datetime | None = entry["last_modified_at"]
+            if prev_dt is None or mv.occurred_at > prev_dt:
+                entry["last_modified_at"] = mv.occurred_at
+
+        if mv.id in reversed_ids or mv.movement_type == "REVERSAL":
+            continue
+
+        if mv.movement_type == "IN_PURCHASE":
+            qty = abs(float(mv.quantity_delta))
+            owner_imported_total += qty
+            owner_imported_events += 1
+            if entry is not None:
+                entry["owner_imported_qty"] += qty
+                entry["owner_imported_count"] += 1
+        elif mv.movement_type in ("OUT_CONSUMPTION", "OUT_DAMAGE_EXPIRED"):
+            qty = abs(float(mv.quantity_delta))
+            if actor_role == "STAFF":
+                staff_consumed_total += qty
+                staff_consumed_events += 1
+                if entry is not None:
+                    entry["staff_consumed_qty"] += qty
+                    entry["staff_consumed_count"] += 1
+            else:
+                manager_consumed_total += qty
+                manager_consumed_events += 1
+                if entry is not None:
+                    entry["manager_consumed_qty"] += qty
+
+    product_items: list[ProductAuditSummaryOut] = []
+    for prod in active_products:
+        entry = stats[prod.id]
+        staff_qty = round(float(entry["staff_consumed_qty"]), 3)
+        mgr_qty = round(float(entry["manager_consumed_qty"]), 3)
+        product_items.append(
+            ProductAuditSummaryOut(
+                product_id=prod.id,
+                sku=prod.sku,
+                name=prod.name,
+                unit=prod.unit,
+                current_stock=round(float(prod.current_stock), 3),
+                owner_imported_qty=round(float(entry["owner_imported_qty"]), 3),
+                owner_imported_count=int(entry["owner_imported_count"]),
+                staff_consumed_qty=staff_qty,
+                staff_consumed_count=int(entry["staff_consumed_count"]),
+                manager_consumed_qty=mgr_qty,
+                total_consumed_qty=round(staff_qty + mgr_qty, 3),
+                last_modified_at=entry["last_modified_at"],
+            )
+        )
+
+    return LedgerAuditSummaryOut(
+        store_id=store_id,
+        period_days=days,
+        owner_imported_total=round(owner_imported_total, 3),
+        owner_imported_events=owner_imported_events,
+        staff_consumed_total=round(staff_consumed_total, 3),
+        staff_consumed_events=staff_consumed_events,
+        manager_consumed_total=round(manager_consumed_total, 3),
+        manager_consumed_events=manager_consumed_events,
+        products=product_items,
+    )
