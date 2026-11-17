@@ -1,6 +1,7 @@
 """Comprehensive unit and integration tests for PocketWMS Backend & Forecasting."""
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
+import re
 import uuid
 
 from fastapi.testclient import TestClient
@@ -843,3 +844,34 @@ def test_default_secret_1234_change_secret_and_delete_staff(client_and_db):
     mvs = client.get("/api/v1/movements", headers=mgr_headers).json()
     staff_mv = next(m for m in mvs if m["id"] == mv.json()["id"])
     assert staff_mv["user_username"] == "nv_1234"
+
+
+def test_pwa_web_static_bundle_and_assets_served(client_and_db):
+    client, _ = client_and_db
+    root_res = client.get("/")
+    assert root_res.status_code == 200
+    assert '<div id="root"></div>' in root_res.text
+
+    web_res = client.get("/web/")
+    assert web_res.status_code == 200
+    assert '<div id="root"></div>' in web_res.text
+
+    match = re.search(r'src="(/_expo/[^"]+\.js)"', root_res.text)
+    assert match is not None
+    script_path = match.group(1)
+
+    js_res = client.get(script_path)
+    assert js_res.status_code == 200
+    assert "javascript" in js_res.headers["content-type"]
+    assert len(js_res.content) > 100_000
+
+    favicon_res = client.get("/favicon.ico")
+    assert favicon_res.status_code == 200
+
+    web_dist = Path(__file__).resolve().parents[2] / "mobile" / "dist"
+    ttf_file = next((web_dist / "assets").rglob("*.ttf"))
+    asset_url = "/" + ttf_file.relative_to(web_dist).as_posix()
+    font_res = client.get(asset_url)
+    assert font_res.status_code == 200
+    assert "font/ttf" in font_res.headers["content-type"]
+

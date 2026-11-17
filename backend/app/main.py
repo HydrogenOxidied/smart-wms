@@ -1,16 +1,21 @@
 """PocketWMS FastAPI Application Entrypoint."""
 from contextlib import asynccontextmanager
+import mimetypes
 from pathlib import Path
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import RedirectResponse
+from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 
 from app.core.config import get_settings
 from app.core.database import Base, SessionLocal, engine
 from app.routes import auth, forecasts, imports, movements, products, stocktakes, store
 from app.seed import seed_demo_data_if_empty
+
+mimetypes.add_type("text/javascript", ".js")
+mimetypes.add_type("font/ttf", ".ttf")
+mimetypes.add_type("font/woff2", ".woff2")
 
 
 @asynccontextmanager
@@ -55,9 +60,33 @@ def create_app() -> FastAPI:
 
     web_dist = Path(__file__).resolve().parents[2] / "mobile" / "dist"
     if (web_dist / "index.html").exists():
+        expo_dir = web_dist / "_expo"
+        if expo_dir.is_dir():
+            app.mount("/_expo", StaticFiles(directory=str(expo_dir)), name="expo-static")
+
+        assets_dir = web_dist / "assets"
+        if assets_dir.is_dir():
+            app.mount("/assets", StaticFiles(directory=str(assets_dir)), name="expo-assets")
+
         @app.get("/", include_in_schema=False)
-        def redirect_to_web() -> RedirectResponse:
-            return RedirectResponse(url="/web/")
+        def serve_pwa_index() -> FileResponse:
+            return FileResponse(
+                web_dist / "index.html",
+                media_type="text/html",
+                headers={"Cache-Control": "no-cache"},
+            )
+
+        favicon_path = web_dist / "favicon.ico"
+        if favicon_path.exists():
+            @app.get("/favicon.ico", include_in_schema=False)
+            def serve_favicon() -> FileResponse:
+                return FileResponse(favicon_path, media_type="image/x-icon")
+
+        metadata_path = web_dist / "metadata.json"
+        if metadata_path.exists():
+            @app.get("/metadata.json", include_in_schema=False)
+            def serve_metadata() -> FileResponse:
+                return FileResponse(metadata_path, media_type="application/json")
 
         app.mount("/web", StaticFiles(directory=str(web_dist), html=True), name="pwa-web")
 
