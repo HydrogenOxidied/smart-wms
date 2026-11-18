@@ -17,6 +17,20 @@ import {
   User,
 } from '../types/wms';
 import {
+  filterCachedMovements,
+  filterCachedProducts,
+  loadCachedProfile,
+  loadPendingMovements,
+  loadStoreSnapshot,
+  overlayPendingOnProducts,
+  reportNetworkStatus,
+  saveCachedProfile,
+  saveForecastCache,
+  saveMovementsCache,
+  saveProductsCache,
+  saveSummaryCache,
+} from './offlineStorage';
+import {
   loadSecureToken,
   loadServerUrl,
   saveServerUrl,
@@ -82,11 +96,37 @@ export class ApiHttpError extends Error {
   }
 }
 
+export class NetworkOfflineError extends Error {
+  readonly isOffline = true;
+
+  constructor(message = 'Không kết nối được máy chủ. Đã chuyển sang dữ liệu Offline trên máy.') {
+    super(message);
+    this.name = 'NetworkOfflineError';
+  }
+}
+
+export function isOfflineNetworkError(err: unknown): err is NetworkOfflineError {
+  return (
+    err instanceof NetworkOfflineError ||
+    (typeof err === 'object' && err !== null && 'isOffline' in err && (err as { isOffline: boolean }).isOffline === true)
+  );
+}
+
+async function getActiveStoreId(): Promise<number | null> {
+  const cached = await loadCachedProfile();
+  return cached?.store?.id ?? null;
+}
+
 async function requestJson<T>(
   path: string,
   options: RequestInit = {},
   requireAuth = true,
 ): Promise<T> {
+  if (typeof navigator !== 'undefined' && navigator.onLine === false) {
+    reportNetworkStatus(true);
+    throw new NetworkOfflineError();
+  }
+
   const headers: Record<string, string> = {
     ...(options.headers as Record<string, string> | undefined),
   };
@@ -109,8 +149,11 @@ async function requestJson<T>(
       headers,
     });
   } catch {
-    throw new Error('Không kết nối được máy chủ. Vui lòng kiểm tra mạng hoặc bật lại Server.');
+    reportNetworkStatus(true);
+    throw new NetworkOfflineError();
   }
+
+  reportNetworkStatus(false);
 
   if (!response.ok) {
     let payload: unknown = null;
@@ -169,10 +212,24 @@ export const api = {
 
   getMe: () => requestJson<AuthResponse>('/auth/me'),
 
-  getStore: () => requestJson<Store>('/store'),
-
-  getRemoteAccess: () =>
-    requestJson<{ active: boolean; public_url: string | null }>('/store/remote-access'),
+  getStore: async (): Promise<Store> => {
+    try {
+      const data = await requestJson<Store>('/store');
+      const cached = await loadCachedProfile();
+      if (cached) {
+        await saveCachedProfile({ user: cached.user, store: data });
+      }
+      return data;
+    } catch (err) {
+      if (isOfflineNetworkError(err)) {
+        const cached = await loadCachedProfile();
+        if (cached?.store) {
+          return cached.store;
+        }
+      }
+      throw err;
+    }
+  },
 
   updateStore: (payload: { lite_mode?: boolean; allow_negative_stock?: boolean; name?: string }) =>
     requestJson<Store>('/store', { method: 'PATCH', body: JSON.stringify(payload) }),
@@ -219,17 +276,61 @@ export const api = {
       body: JSON.stringify({ current_secret, new_secret }),
     }),
 
-  listProducts: (params?: { search?: string; category?: string; low_stock_only?: boolean }) => {
+  listProducts: async (params?: {
+    search?: string;
+    category?: string;
+    low_stock_only?: boolean;
+  }): Promise<Product[]> => {
     const q = new URLSearchParams();
     if (params?.search) q.set('search', params.search);
     if (params?.category && params.category !== 'Tất cả') q.set('category', params.category);
     if (params?.low_stock_only) q.set('low_stock_only', 'true');
     const qs = q.toString() ? `?${q.toString()}` : '';
-    return requestJson<Product[]>(`/products${qs}`);
+    const storeId = await getActiveStoreId();
+
+    try {
+      const data = await requestJson<Product[]>(`/products${qs}`);
+      if (storeId) {
+        const pendingAll = await loadPendingMovements();
+        const pendingStore = pendingAll.filter((p) => p.store_id === storeId);
+        if (pendingStore.length === 0) {
+          if (!params?.search && (!params?.category || params.category === 'Tất cả') && !params?.low_stock_only) {
+            await saveProductsCache(storeId, data);
+          }
+          return data;
+        }
+        return overlayPendingOnProducts(data, pendingStore);
+      }
+      return data;
+    } catch (err) {
+      if (isOfflineNetworkError(err) && storeId) {
+        const snap = await loadStoreSnapshot(storeId);
+        if (snap.products) {
+          return filterCachedProducts(snap.products, params);
+        }
+      }
+      throw err;
+    }
   },
 
-  findByBarcode: (code: string) =>
-    requestJson<Product>(`/products/by-barcode/${encodeURIComponent(code)}`),
+  findByBarcode: async (code: string): Promise<Product> => {
+    const storeId = await getActiveStoreId();
+    try {
+      return await requestJson<Product>(`/products/by-barcode/${encodeURIComponent(code)}`);
+    } catch (err) {
+      if (isOfflineNetworkError(err) && storeId) {
+        const snap = await loadStoreSnapshot(storeId);
+        if (snap.products) {
+          const found = snap.products.find(
+            (p) => p.barcode === code || p.sku.toUpperCase() === code.toUpperCase(),
+          );
+          if (found) return found;
+          throw new ApiHttpError(404, `Không tìm thấy sản phẩm mã "${code}" trong bộ nhớ tạm.`);
+        }
+      }
+      throw err;
+    }
+  },
 
   checkDuplicates: (name: string) =>
     requestJson<DuplicateWarningItem[]>(
@@ -248,13 +349,13 @@ export const api = {
       body: JSON.stringify({ packs_to_break, idempotency_key }),
     }),
 
-  listMovements: (params?: {
+  listMovements: async (params?: {
     product_id?: number;
     movement_type?: string;
     actor_role?: string;
     days?: number;
     limit?: number;
-  }) => {
+  }): Promise<StockMovement[]> => {
     const q = new URLSearchParams();
     if (params?.product_id) q.set('product_id', String(params.product_id));
     if (params?.movement_type) q.set('movement_type', params.movement_type);
@@ -262,13 +363,75 @@ export const api = {
     if (params?.days) q.set('days', String(params.days));
     if (params?.limit) q.set('limit', String(params.limit));
     const qs = q.toString() ? `?${q.toString()}` : '';
-    return requestJson<StockMovement[]>(`/movements${qs}`);
+    const storeId = await getActiveStoreId();
+
+    try {
+      const data = await requestJson<StockMovement[]>(`/movements${qs}`);
+      if (storeId) {
+        const pendingAll = await loadPendingMovements();
+        const pendingStore = pendingAll.filter((p) => p.store_id === storeId);
+        if (pendingStore.length === 0) {
+          if (!params?.product_id && !params?.movement_type && !params?.actor_role && !params?.days) {
+            await saveMovementsCache(storeId, data);
+          }
+          return data;
+        }
+        const snap = await loadStoreSnapshot(storeId);
+        const serverKeys = new Set(data.map((m) => m.idempotency_key));
+        const extraPending = (snap.movements || []).filter(
+          (m) => m.id < 0 && !serverKeys.has(m.idempotency_key),
+        );
+        return filterCachedMovements([...extraPending, ...data], params);
+      }
+      return data;
+    } catch (err) {
+      if (isOfflineNetworkError(err) && storeId) {
+        const snap = await loadStoreSnapshot(storeId);
+        if (snap.movements) {
+          return filterCachedMovements(snap.movements, params);
+        }
+      }
+      throw err;
+    }
   },
 
-  getMovementsSummary: (days?: number) =>
-    requestJson<LedgerAuditSummary>(
-      days ? `/movements/summary?days=${days}` : '/movements/summary',
-    ),
+  getMovementsSummary: async (days?: number): Promise<LedgerAuditSummary> => {
+    const storeId = await getActiveStoreId();
+    try {
+      const data = await requestJson<LedgerAuditSummary>(
+        days ? `/movements/summary?days=${days}` : '/movements/summary',
+      );
+      if (storeId && !days) {
+        const pendingAll = await loadPendingMovements();
+        const pendingStore = pendingAll.filter((p) => p.store_id === storeId);
+        if (pendingStore.length === 0) {
+          await saveSummaryCache(storeId, data);
+        }
+      }
+      return data;
+    } catch (err) {
+      if (isOfflineNetworkError(err) && storeId) {
+        const snap = await loadStoreSnapshot(storeId);
+        if (snap.summary) {
+          return snap.summary;
+        }
+        if (snap.products) {
+          return {
+            store_id: storeId,
+            period_days: days ?? null,
+            owner_imported_total: 0,
+            owner_imported_events: 0,
+            staff_consumed_total: 0,
+            staff_consumed_events: 0,
+            manager_consumed_total: 0,
+            manager_consumed_events: 0,
+            products: [],
+          };
+        }
+      }
+      throw err;
+    }
+  },
 
   createMovement: (payload: MovementCreateInput) =>
     requestJson<StockMovement>('/movements', { method: 'POST', body: JSON.stringify(payload) }),
@@ -321,10 +484,40 @@ export const api = {
       body: JSON.stringify({ item_options }),
     }),
 
-  getForecastOverview: () => requestJson<ForecastOverview>('/forecasts/overview'),
+  getForecastOverview: async (): Promise<ForecastOverview> => {
+    const storeId = await getActiveStoreId();
+    try {
+      const data = await requestJson<ForecastOverview>('/forecasts/overview');
+      if (storeId) {
+        await saveForecastCache(storeId, data);
+      }
+      return data;
+    } catch (err) {
+      if (isOfflineNetworkError(err) && storeId) {
+        const snap = await loadStoreSnapshot(storeId);
+        if (snap.forecastOverview) {
+          return snap.forecastOverview;
+        }
+      }
+      throw err;
+    }
+  },
 
-  getProductForecast: (productId: number) =>
-    requestJson<ProductForecast>(`/forecasts/products/${productId}`),
+  getProductForecast: async (productId: number): Promise<ProductForecast> => {
+    const storeId = await getActiveStoreId();
+    try {
+      return await requestJson<ProductForecast>(`/forecasts/products/${productId}`);
+    } catch (err) {
+      if (isOfflineNetworkError(err) && storeId) {
+        const snap = await loadStoreSnapshot(storeId);
+        const cachedItem = snap.forecastOverview?.items.find((i) => i.product_id === productId);
+        if (cachedItem) {
+          return cachedItem;
+        }
+      }
+      throw err;
+    }
+  },
 
   exportDraftPoCsvText: async (): Promise<string> => {
     const jwt = await loadSecureToken();
@@ -338,7 +531,6 @@ export const api = {
   },
 
   uploadCsv: async (endpoint: '/imports/products-csv' | '/imports/history-csv', uri: string, name: string) => {
-    const jwt = await loadSecureToken();
     const form = new FormData();
     if (Platform.OS === 'web') {
       const blob = await fetch(uri).then((r) => r.blob());

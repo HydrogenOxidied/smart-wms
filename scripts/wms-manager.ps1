@@ -1,6 +1,6 @@
-﻿[CmdletBinding()]
+[CmdletBinding()]
 param(
-    [ValidateSet('launcher', 'start', 'start-silent', 'restart-tunnel', 'stop', 'status', 'check-update', 'update', 'install-autostart', 'remove-autostart')]
+    [ValidateSet('launcher', 'start', 'start-silent', 'stop', 'status', 'check-update', 'update', 'install-autostart', 'remove-autostart')]
     [string]$Action = 'launcher'
 )
 
@@ -17,14 +17,11 @@ $BackendDir = Join-Path $RootDir 'backend'
 $PythonExe = Join-Path $BackendDir '.venv\Scripts\python.exe'
 $QrScript = Join-Path $ScriptsDir 'qr_matrix.py'
 $LogsDir = Join-Path $BackendDir 'logs'
+$BackupsDir = Join-Path $BackendDir 'backups'
+$DbFile = Join-Path $BackendDir 'smart_wms.db'
 $UvicornPidFile = Join-Path $LogsDir 'uvicorn.pid'
 $BackendStdout = Join-Path $LogsDir 'backend.stdout.log'
 $BackendStderr = Join-Path $LogsDir 'backend.stderr.log'
-$CfPidFile = Join-Path $LogsDir 'cloudflared.pid'
-$CfLog = Join-Path $LogsDir 'cloudflared.log'
-$CfStdout = Join-Path $LogsDir 'cloudflared.stdout.log'
-$CfStderr = Join-Path $LogsDir 'cloudflared.stderr.log'
-$PublicUrlFile = Join-Path $LogsDir 'public_url.txt'
 $Utf8NoBom = New-Object System.Text.UTF8Encoding($false)
 
 if (-not (Test-Path $LogsDir)) {
@@ -42,23 +39,6 @@ function Read-TextTrimmed {
     return ([System.IO.File]::ReadAllText($Path, [System.Text.Encoding]::UTF8)).Trim([char]0xFEFF, [char]' ', [char]"`r", [char]"`n", [char]"`t")
 }
 
-function Read-SharedText {
-    param([string]$Path)
-    if (-not (Test-Path $Path)) { return '' }
-    $fs = $null
-    $sr = $null
-    try {
-        $fs = [System.IO.File]::Open($Path, [System.IO.FileMode]::Open, [System.IO.FileAccess]::Read, [System.IO.FileShare]::ReadWrite)
-        $sr = New-Object System.IO.StreamReader($fs, [System.Text.Encoding]::UTF8)
-        return $sr.ReadToEnd()
-    } catch {
-        return ''
-    } finally {
-        if ($sr) { $sr.Dispose() }
-        if ($fs) { $fs.Dispose() }
-    }
-}
-
 function Get-LanIp {
     $ip = Get-NetIPAddress -AddressFamily IPv4 -ErrorAction SilentlyContinue |
         Where-Object {
@@ -69,28 +49,6 @@ function Get-LanIp {
         Select-Object -First 1 -ExpandProperty IPAddress
     if (-not $ip) { return '127.0.0.1' }
     return $ip
-}
-
-function Resolve-CloudflaredExe {
-    $cmd = Get-Command cloudflared -ErrorAction SilentlyContinue
-    if ($cmd -and (Test-Path $cmd.Source)) {
-        return $cmd.Source
-    }
-    $candidates = @(
-        'C:\Program Files (x86)\cloudflared\cloudflared.exe',
-        'C:\Program Files\cloudflared\cloudflared.exe',
-        (Join-Path $BackendDir 'bin\cloudflared.exe')
-    )
-    $wingetPkgs = Join-Path $env:LOCALAPPDATA 'Microsoft\WinGet\Packages'
-    if (Test-Path $wingetPkgs) {
-        $foundPkg = Get-ChildItem -Path $wingetPkgs -Filter 'cloudflared.exe' -Recurse -ErrorAction SilentlyContinue |
-            Select-Object -First 1
-        if ($foundPkg) { $candidates += $foundPkg.FullName }
-    }
-    foreach ($cand in $candidates) {
-        if ($cand -and (Test-Path $cand)) { return $cand }
-    }
-    return $null
 }
 
 function Test-LocalHealth {
@@ -147,107 +105,16 @@ function Ensure-Backend {
     throw "Backend khong phan hoi trong 20 giay. Kiem tra log tai $BackendStderr"
 }
 
-function Get-ActiveCloudflaredProc {
-    $pidRaw = Read-TextTrimmed -Path $CfPidFile
-    $cfPid = 0
-    if ($pidRaw -and ([int]::TryParse($pidRaw, [ref]$cfPid))) {
-        $proc = Get-Process -Id $cfPid -ErrorAction SilentlyContinue
-        if ($proc -and ($proc.ProcessName -eq 'cloudflared')) {
-            return $proc
-        }
-    }
-    $fallback = Get-CimInstance Win32_Process -ErrorAction SilentlyContinue |
-        Where-Object { ($_.Name -eq 'cloudflared.exe') -and ($_.CommandLine -match '127\.0\.0\.1:8000') } |
-        Select-Object -First 1
-    if ($fallback) {
-        Write-TextNoBom -Path $CfPidFile -Value ([string]$fallback.ProcessId)
-        return (Get-Process -Id $fallback.ProcessId -ErrorAction SilentlyContinue)
-    }
-    return $null
-}
-
-function Ensure-CloudflareTunnel {
-    param([switch]$ForceRestart)
-
-    $exe = Resolve-CloudflaredExe
-    if (-not $exe) {
-        return $null
-    }
-
-    if (-not $ForceRestart) {
-        $existingProc = Get-ActiveCloudflaredProc
-        $existingUrl = Read-TextTrimmed -Path $PublicUrlFile
-        if ($existingProc -and $existingUrl -and ($existingUrl -match '^https://[a-zA-Z0-9-]+\.trycloudflare\.com$')) {
-            try {
-                $rh = Invoke-RestMethod -Uri ($existingUrl + '/api/v1/health') -Method GET -TimeoutSec 5
-                if ($rh.status -eq 'ok') {
-                    return $existingUrl
-                }
-            } catch {
-                # Tunnel stale/expired; recreate below
-            }
-        }
-    }
-
-    Get-CimInstance Win32_Process -ErrorAction SilentlyContinue |
-        Where-Object { ($_.Name -eq 'cloudflared.exe') -and ($_.CommandLine -match '127\.0\.0\.1:8000') } |
-        ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }
-    Remove-Item $CfPidFile, $CfLog, $CfStdout, $CfStderr, $PublicUrlFile -Force -ErrorAction SilentlyContinue
-
-    $proc = Start-Process -FilePath $exe `
-        -ArgumentList 'tunnel', '--url', 'http://127.0.0.1:8000', '--no-autoupdate', '--logfile', $CfLog `
-        -WorkingDirectory $BackendDir `
-        -WindowStyle Hidden `
-        -RedirectStandardOutput $CfStdout `
-        -RedirectStandardError $CfStderr `
-        -PassThru
-
-    Write-TextNoBom -Path $CfPidFile -Value ([string]$proc.Id)
-
-    $resolvedUrl = $null
-    for ($i = 0; $i -lt 50; $i++) {
-        Start-Sleep -Milliseconds 500
-        if ($proc.HasExited) {
-            break
-        }
-        $logText = Read-SharedText -Path $CfLog
-        if ($logText -match 'https://[a-zA-Z0-9-]+\.trycloudflare\.com') {
-            $resolvedUrl = $Matches[0]
-            if ($logText -match 'Registered tunnel connection') {
-                break
-            }
-        }
-    }
-
-    if (-not $resolvedUrl) {
-        throw "Khong tao duoc link Cloudflare Tunnel trong 25 giay. Kiem tra log tai $CfLog"
-    }
-
-    Write-TextNoBom -Path $PublicUrlFile -Value $resolvedUrl
-    return $resolvedUrl
-}
-
 function Invoke-StopAll {
     $stoppedAny = $false
 
-    $cfProcs = Get-CimInstance Win32_Process -ErrorAction SilentlyContinue |
+    $legacyCf = Get-CimInstance Win32_Process -ErrorAction SilentlyContinue |
         Where-Object { ($_.Name -eq 'cloudflared.exe') -and ($_.CommandLine -match '127\.0\.0\.1:8000') }
-    foreach ($cp in $cfProcs) {
+    foreach ($cp in $legacyCf) {
         Stop-Process -Id $cp.ProcessId -Force -ErrorAction SilentlyContinue
-        Write-Host "[PocketWMS] Da dung Cloudflare Tunnel PID=$($cp.ProcessId)"
         $stoppedAny = $true
     }
-    $cfPidRaw = Read-TextTrimmed -Path $CfPidFile
-    $cfPidVal = 0
-    if ($cfPidRaw -and ([int]::TryParse($cfPidRaw, [ref]$cfPidVal))) {
-        $p = Get-Process -Id $cfPidVal -ErrorAction SilentlyContinue
-        if ($p) {
-            Stop-Process -Id $cfPidVal -Force -ErrorAction SilentlyContinue
-            Write-Host "[PocketWMS] Da dung Cloudflare Tunnel PID=$cfPidVal"
-            $stoppedAny = $true
-        }
-    }
-    Remove-Item $CfPidFile, $PublicUrlFile -Force -ErrorAction SilentlyContinue
+    Remove-Item (Join-Path $LogsDir 'cloudflared.*'), (Join-Path $LogsDir 'public_url.txt') -Force -ErrorAction SilentlyContinue
 
     $uvPidRaw = Read-TextTrimmed -Path $UvicornPidFile
     $uvPidVal = 0
@@ -268,8 +135,44 @@ function Invoke-StopAll {
     Remove-Item $UvicornPidFile -Force -ErrorAction SilentlyContinue
 
     if (-not $stoppedAny) {
-        Write-Host '[PocketWMS] Server va Tunnel hien khong chay.'
+        Write-Host '[PocketWMS] Server hien khong chay.'
     }
+}
+
+function Backup-AndCheckpointDatabase {
+    if (-not (Test-Path $DbFile)) {
+        return $null
+    }
+    if (-not (Test-Path $BackupsDir)) {
+        New-Item -ItemType Directory -Force -Path $BackupsDir | Out-Null
+    }
+    if (Test-Path $PythonExe) {
+        & $PythonExe -c "import sqlite3, sys; c = sqlite3.connect(sys.argv[1]); c.execute('PRAGMA wal_checkpoint(TRUNCATE)'); c.close()" $DbFile 2>$null | Out-Null
+    }
+    $stamp = Get-Date -Format 'yyyyMMdd_HHmmss'
+    $backupName = "smart_wms_before_update_${stamp}.db"
+    $backupPath = Join-Path $BackupsDir $backupName
+    Copy-Item -Path $DbFile -Destination $backupPath -Force
+
+    $oldBackups = Get-ChildItem -Path $BackupsDir -Filter 'smart_wms_before_update_*.db' -File -ErrorAction SilentlyContinue |
+        Sort-Object LastWriteTime -Descending |
+        Select-Object -Skip 5
+    foreach ($old in $oldBackups) {
+        Remove-Item $old.FullName -Force -ErrorAction SilentlyContinue
+    }
+    return $backupPath
+}
+
+function Test-DatabaseIntegrity {
+    if (-not (Test-Path $DbFile)) {
+        return $false
+    }
+    if (Test-Path $PythonExe) {
+        $chk = & $PythonExe -c "import sqlite3, sys; c = sqlite3.connect(sys.argv[1]); r = c.execute('PRAGMA quick_check').fetchone()[0]; c.close(); print(r)" $DbFile 2>$null
+        $firstLine = ($chk | Select-Object -First 1)
+        return (($LASTEXITCODE -eq 0) -and ("$firstLine".Trim() -eq 'ok'))
+    }
+    return (Test-Path $DbFile)
 }
 
 function Get-AutostartPaths {
@@ -303,7 +206,7 @@ function Invoke-InstallAutostart {
     $sc.Arguments = '"' + $vbs + '"'
     $sc.WorkingDirectory = $RootDir
     $sc.WindowStyle = 7
-    $sc.Description = 'Tu khoi dong ngam PocketWMS Backend + Cloudflare 4G'
+    $sc.Description = 'Tu khoi dong ngam PocketWMS Local Wi-Fi Server'
     $sc.Save()
     if (-not $Quiet) {
         Write-Host "[OK] Da cai dat tu khoi dong ngam tai: $($paths.LnkPath)" -ForegroundColor Green
@@ -498,8 +401,14 @@ function Invoke-ApplyReleaseUpdate {
         throw 'Goi .zip khong dung cau truc PocketWMS (thieu backend\app\main.py).'
     }
 
-    Write-Host '[3/4] Dang dung Server de cap nhat ma nguon an toan (giu nguyen database)...'
+    Write-Host '[3/4] Dang dung Server, sao luu DB va cap nhat ma nguon an toan...'
     Invoke-StopAll
+
+    $hadDbBefore = (Test-Path $DbFile)
+    $backupPath = if ($hadDbBefore) { Backup-AndCheckpointDatabase } else { $null }
+    if ($backupPath) {
+        Write-Host "[3/4] Da sao luu an toan database tai: $backupPath" -ForegroundColor Cyan
+    }
 
     $srcDist = Join-Path $sourceRoot 'mobile\dist'
     $dstDist = Join-Path $RootDir 'mobile\dist'
@@ -514,10 +423,10 @@ function Invoke-ApplyReleaseUpdate {
     foreach ($file in $sourceFiles) {
         $relPath = $file.FullName.Substring($sourceRoot.Length).TrimStart('\', '/')
         if (
-            ($relPath -match '\.(db|db-shm|db-wal)$') -or
+            ($relPath -match '\.(db|db-shm|db-wal|db-journal)$') -or
             ($file.Name -eq '.env') -or
             ($relPath -match '(^|[\\/])(\.venv|venv|node_modules|\.git)([\\/]|$)') -or
-            ($relPath -match '^backend[\\/]logs([\\/]|$)') -or
+            ($relPath -match '^backend[\\/](logs|backups)([\\/]|$)') -or
             ($relPath -match '^mobile[\\/]dist([\\/]|$)')
         ) {
             continue
@@ -532,6 +441,13 @@ function Invoke-ApplyReleaseUpdate {
         } catch {
             Write-Warning "Bo qua file dang mo: $relPath"
         }
+    }
+
+    if ($hadDbBefore -and (-not (Test-DatabaseIntegrity))) {
+        if ($backupPath -and (Test-Path $backupPath)) {
+            Copy-Item -Path $backupPath -Destination $DbFile -Force
+        }
+        throw 'Phat hien loi file database sau khi giai nen; da tu dong khoi phuc ban sao luu an toan!'
     }
 
     if (-not (Test-Path (Join-Path $sourceRoot 'VERSION'))) {
@@ -588,7 +504,7 @@ function Invoke-ShowStatus {
     $localOnline = Test-LocalHealth
 
     if ($localOnline) {
-        Write-Host 'BACKEND     : ONLINE (Dang chay ngam)' -ForegroundColor Green
+        Write-Host 'BACKEND     : ONLINE (Dang chay ngam - Local / Wi-Fi LAN)' -ForegroundColor Green
         $ownerPid = Get-ListeningPort8000Pid
         if ($ownerPid) {
             $proc = Get-Process -Id $ownerPid -ErrorAction SilentlyContinue
@@ -597,24 +513,13 @@ function Invoke-ShowStatus {
                 Write-Host "PID / RAM   : $ownerPid / $ramMb MB"
             }
         }
+        try { Set-Clipboard -Value "http://${lanIp}:8000" } catch {}
     } else {
         Write-Host 'BACKEND     : OFFLINE' -ForegroundColor Red
     }
 
-    $cfProc = Get-ActiveCloudflaredProc
-    $pubUrl = Read-TextTrimmed -Path $PublicUrlFile
-    $tunnelOnline = $false
-    if ($cfProc -and $pubUrl -and ($pubUrl -match '^https://[a-zA-Z0-9-]+\.trycloudflare\.com$')) {
-        $tunnelOnline = $true
-        Write-Host "TUNNEL 4G   : ONLINE (PID=$($cfProc.Id))" -ForegroundColor Green
-        Write-Host "Link 4G/Net : $pubUrl (Da COPY)" -ForegroundColor Cyan
-        Write-Host "API 4G/Net  : $pubUrl/api/v1" -ForegroundColor Cyan
-        try { Set-Clipboard -Value $pubUrl } catch {}
-    } else {
-        Write-Host 'TUNNEL 4G   : OFFLINE' -ForegroundColor Yellow
-    }
-
-    Write-Host "Web/PWA LAN : http://${lanIp}:8000/web"
+    Write-Host "WebApp LAN  : http://${lanIp}:8000 (Da COPY)" -ForegroundColor Cyan
+    Write-Host 'Localhost   : http://localhost:8000' -ForegroundColor White
     Write-Host "API URL LAN : http://${lanIp}:8000/api/v1"
 
     $localVer = Get-LocalVersion
@@ -638,33 +543,24 @@ function Invoke-ShowStatus {
     }
     Write-Host "Thu muc Log : $LogsDir"
 
-    if ($tunnelOnline) {
-        Invoke-PrintQrCode -Url $pubUrl -Caption 'QUET MA QR DE MO APP QUA 4G / WI-FI BAT KY:'
-    } elseif ($localOnline) {
-        Invoke-PrintQrCode -Url "http://${lanIp}:8000/web" -Caption 'QUET MA QR DE MO APP CUNG WI-FI (LAN):'
+    if ($localOnline) {
+        Invoke-PrintQrCode -Url "http://${lanIp}:8000" -Caption 'QUET MA QR DE MO APP CUNG WI-FI (LAN):'
     }
 }
 
 function Invoke-PrintStartBanner {
-    param([string]$PublicUrl, [string]$LanIp)
+    param([string]$LanIp)
 
+    $lanUrl = "http://${LanIp}:8000"
+    try { Set-Clipboard -Value $lanUrl } catch {}
     Write-Host ''
     Write-Host '==========================================================================' -ForegroundColor Green
-    if ($PublicUrl) {
-        try { Set-Clipboard -Value $PublicUrl } catch {}
-        Write-Host "  Link 4G / Khac Wi-Fi (Da COPY): $PublicUrl" -ForegroundColor Cyan
-        Write-Host "  API cho APK / Expo Go         : $PublicUrl/api/v1" -ForegroundColor White
-    } else {
-        try { Set-Clipboard -Value "http://${LanIp}:8000/web" } catch {}
-        Write-Host '  [CANH BAO] Chua co cloudflared.exe -> Tam chi truy cap trong cung Wi-Fi LAN.' -ForegroundColor Yellow
-    }
-    Write-Host "  Link cung Wi-Fi (LAN)         : http://${LanIp}:8000/web" -ForegroundColor White
+    Write-Host "  WebApp Wi-Fi LAN (Da COPY) : $lanUrl" -ForegroundColor Cyan
+    Write-Host '  WebApp tren may nay (Local): http://localhost:8000' -ForegroundColor White
+    Write-Host "  API URL LAN                : $lanUrl/api/v1" -ForegroundColor White
+    Write-Host '  Che do Offline             : Tu luu tren may va dong bo khi co mang' -ForegroundColor Yellow
     Write-Host '==========================================================================' -ForegroundColor Green
-    if ($PublicUrl) {
-        Invoke-PrintQrCode -Url $PublicUrl -Caption 'QUET MA QR DE MO APP QUA 4G / WI-FI BAT KY:'
-    } else {
-        Invoke-PrintQrCode -Url "http://${LanIp}:8000/web" -Caption 'QUET MA QR DE MO APP CUNG WI-FI (LAN):'
-    }
+    Invoke-PrintQrCode -Url $lanUrl -Caption 'QUET MA QR DE MO APP CUNG WI-FI (LAN):'
 }
 
 function Invoke-Launcher {
@@ -679,9 +575,8 @@ function Invoke-Launcher {
                 Invoke-ApplyReleaseUpdate -UpdateInfo $upd
             }
         }
-        Write-Host '[PocketWMS] Dang kiem tra / khoi dong ngam Backend & Link 4G...'
+        Write-Host '[PocketWMS] Dang kiem tra / khoi dong ngam Backend Local Wi-Fi...'
         [void](Ensure-Backend)
-        [void](Ensure-CloudflareTunnel)
 
         $running = $true
         while ($running) {
@@ -689,9 +584,9 @@ function Invoke-Launcher {
             Write-Host '==========================================================================' -ForegroundColor Green
             Invoke-ShowStatus
             Write-Host '--------------------------------------------------------------------------' -ForegroundColor DarkGray
-            Write-Host '  [Enter] Dong cua so (Backend + 4G van chay ngam)'
-            Write-Host '  [1]     Bat Server / Cap moi link & ma QR 4G'
-            Write-Host '  [2]     Tat toan bo Backend & Tunnel 4G'
+            Write-Host '  [Enter] Dong cua so (Backend van chay ngam)'
+            Write-Host '  [1]     Bat Server / Hien thi ma QR Wi-Fi LAN'
+            Write-Host '  [2]     Tat Backend Server'
             Write-Host '  [3]     Bat / Tat Tu khoi dong cung Windows'
             Write-Host '  [4]     Kiem tra & Cap nhat phien ban moi (GitHub Release)'
             Write-Host '--------------------------------------------------------------------------' -ForegroundColor DarkGray
@@ -708,9 +603,8 @@ function Invoke-Launcher {
                 'q' { $running = $false }
                 'Q' { $running = $false }
                 '1' {
-                    Write-Host '[...] Dang khoi dong Backend & cap moi link 4G...'
+                    Write-Host '[...] Dang khoi dong Backend Local Wi-Fi...'
                     [void](Ensure-Backend)
-                    [void](Ensure-CloudflareTunnel -ForceRestart)
                 }
                 '2' {
                     Invoke-StopAll
@@ -722,7 +616,6 @@ function Invoke-Launcher {
                     if (Invoke-CheckAndPromptUpdate) {
                         Write-Host '[...] Dang khoi dong lai Server voi phien ban moi...'
                         [void](Ensure-Backend)
-                        [void](Ensure-CloudflareTunnel)
                     }
                 }
                 default {
@@ -743,26 +636,15 @@ switch ($Action) {
     'start' {
         Repair-LegacyAutostart
         $lanIp = Get-LanIp
-        Write-Host '[1/2] Dang kiem tra / khoi dong Backend PocketWMS (cong 8000)...'
+        Write-Host '[1/1] Dang kiem tra / khoi dong Backend PocketWMS (cong 8000)...'
         [void](Ensure-Backend)
-        Write-Host '[2/2] Dang kiem tra / khoi dong Cloudflare Tunnel (4G / Khac Wi-Fi)...'
-        $pubUrl = Ensure-CloudflareTunnel
-        Invoke-PrintStartBanner -PublicUrl $pubUrl -LanIp $lanIp
-        Write-Host '  * Ban co the DONG cua so nay, Backend + Tunnel van chay ngam.'
-        Write-Host '  * Chay start-wms.bat de xem link 4G, tat server, hoac bat tu khoi dong.'
+        Invoke-PrintStartBanner -LanIp $lanIp
+        Write-Host '  * Ban co the DONG cua so nay, Server van chay ngam.'
+        Write-Host '  * Chay start-wms.bat de xem ma QR, tat server, hoac bat tu khoi dong.'
     }
     'start-silent' {
         Repair-LegacyAutostart
         [void](Ensure-Backend)
-        [void](Ensure-CloudflareTunnel)
-    }
-    'restart-tunnel' {
-        $lanIp = Get-LanIp
-        Write-Host '[1/2] Dang kiem tra Backend PocketWMS (cong 8000)...'
-        [void](Ensure-Backend)
-        Write-Host '[2/2] Dang cap moi link Cloudflare Tunnel (4G / Khac Wi-Fi)...'
-        $pubUrl = Ensure-CloudflareTunnel -ForceRestart
-        Invoke-PrintStartBanner -PublicUrl $pubUrl -LanIp $lanIp
     }
     'stop' {
         Invoke-StopAll

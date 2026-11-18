@@ -1,6 +1,6 @@
 @echo off
 chcp 65001 >nul
-title PocketWMS - Khoi dong, Ma QR 4G va Cap nhat GitHub
+title PocketWMS - Khoi dong Local Wi-Fi, Ma QR va Cap nhat GitHub
 if "%~1"=="" (
     powershell.exe -NoProfile -ExecutionPolicy Bypass -File "%~dp0scripts\wms-manager.ps1" -Action launcher
 ) else (

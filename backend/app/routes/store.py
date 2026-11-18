@@ -1,5 +1,4 @@
 """Store configuration, Lite/Pro mode toggle, and starter templates."""
-from pathlib import Path
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException, status
@@ -30,19 +29,6 @@ class ApplyTemplateRequest(BaseModel):
     """Apply an industry starter template to current store."""
 
     template_key: TemplateKey
-
-
-@router.get("/remote-access")
-def get_remote_access(
-    _manager: Annotated[User, Depends(require_manager)],
-) -> dict[str, bool | str | None]:
-    """Return active Cloudflare 4G/internet public tunnel URL if running."""
-    url_file = Path(__file__).resolve().parents[2] / "logs" / "public_url.txt"
-    if url_file.exists():
-        public_url = url_file.read_text(encoding="utf-8-sig").strip()
-        if public_url.startswith("https://"):
-            return {"active": True, "public_url": public_url}
-    return {"active": False, "public_url": None}
 
 
 @router.get("", response_model=StoreOut)

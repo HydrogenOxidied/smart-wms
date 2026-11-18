@@ -18,8 +18,9 @@ import {
   SegmentedToggle,
   StatusPill,
 } from '../components/CommonUI';
-import { ApiHttpError, api } from '../services/apiClient';
+import { ApiHttpError, api, isOfflineNetworkError } from '../services/apiClient';
 import { useAuthStore } from '../store/authStore';
+import { useOfflineQueueStore } from '../store/offlineQueueStore';
 import { useUiStore } from '../store/uiStore';
 import { RADIUS, SPACING, TOUCH_MIN } from '../theme/tokens';
 import { useTheme } from '../theme/useTheme';
@@ -124,6 +125,15 @@ export function ConsumptionScreen() {
   const isManager = user?.role === 'MANAGER';
   const setActiveTab = useUiStore((s) => s.setActiveTab);
   const focusedMovementProductId = useUiStore((s) => s.focusedMovementProductId);
+  const pending = useOfflineQueueStore((s) => s.pending);
+  const isSyncing = useOfflineQueueStore((s) => s.isSyncing);
+  const enqueueMovements = useOfflineQueueStore((s) => s.enqueueMovements);
+  const syncPendingMovements = useOfflineQueueStore((s) => s.syncPendingMovements);
+
+  const pendingForStore = useMemo(
+    () => (store ? pending.filter((p) => p.store_id === store.id) : []),
+    [pending, store],
+  );
 
   const [mode, setMode] = useState<ActionMode>('out_single');
   const [productSearch, setProductSearch] = useState('');
@@ -316,6 +326,37 @@ export function ConsumptionScreen() {
         setShowAuditLink(true);
         refreshAll();
       } catch (err) {
+        if (isOfflineNetworkError(err) && user && store) {
+          const offlinePayload: MovementCreateInput = {
+            ...payload,
+            occurred_at: payload.occurred_at || new Date().toISOString(),
+          };
+          const { updatedProducts, createdMovements } = await enqueueMovements(
+            [offlinePayload],
+            user,
+            store.id,
+          );
+          queryClient.setQueryData(['products'], updatedProducts);
+          await triggerSuccessHaptic();
+          setAnomalyPending(null);
+          setNote('');
+          setQtyText(payload.movement_type === 'IN_PURCHASE' ? '5' : '1');
+          const synthetic = createdMovements[0];
+          const beforeVal =
+            typeof synthetic?.balance_before === 'number'
+              ? synthetic.balance_before
+              : product.current_stock;
+          const deltaVal = synthetic?.quantity_delta ?? 0;
+          const afterVal =
+            synthetic?.balance_after ?? Number((beforeVal + deltaVal).toFixed(3));
+          const deltaStr = deltaVal > 0 ? `+${formatNumber(deltaVal)}` : formatNumber(deltaVal);
+          setStatusMsg(
+            `Đã lưu Offline: "${product.name}" (${formatNumber(beforeVal)} ${deltaStr} → ${formatNumber(afterVal)} ${product.unit}) — tự đồng bộ khi có mạng.`,
+          );
+          setShowAuditLink(true);
+          refreshAll();
+          return;
+        }
         if (err instanceof ApiHttpError && err.status === 409) {
           await triggerWarningHaptic();
           setAnomalyPending({ message: err.message, payload });
@@ -326,7 +367,7 @@ export function ConsumptionScreen() {
         setSubmitting(false);
       }
     },
-    [refreshAll],
+    [refreshAll, user, store, enqueueMovements, queryClient],
   );
 
   const handleSingleSubmit = useCallback(() => {
@@ -415,11 +456,28 @@ export function ConsumptionScreen() {
       setShowAuditLink(true);
       refreshAll();
     } catch (err) {
+      if (isOfflineNetworkError(err) && user && store) {
+        const baseMs = Date.now();
+        const stampedItems = batchItems.map((it, idx) => ({
+          ...it,
+          occurred_at: new Date(baseMs + idx).toISOString(),
+        }));
+        const { updatedProducts } = await enqueueMovements(stampedItems, user, store.id);
+        queryClient.setQueryData(['products'], updatedProducts);
+        await triggerSuccessHaptic();
+        setShiftQuantities({});
+        setStatusMsg(
+          `Đã lưu Offline chốt ca ${stampedItems.length} mặt hàng — tự đồng bộ khi có mạng.`,
+        );
+        setShowAuditLink(true);
+        refreshAll();
+        return;
+      }
       setStatusMsg(err instanceof Error ? err.message : 'Lỗi chốt ca.');
     } finally {
       setSubmitting(false);
     }
-  }, [shiftQuantities, refreshAll]);
+  }, [shiftQuantities, refreshAll, user, store, enqueueMovements, queryClient]);
 
   const renderSingleForm = useCallback(
     ({ item }: { item: string }) => {
@@ -812,6 +870,24 @@ export function ConsumptionScreen() {
               </Pressable>
             ) : null}
           </View>
+        ) : null}
+        {pendingForStore.length > 0 ? (
+          <ActionButton
+            label={`Đồng bộ ngay (${pendingForStore.length})`}
+            icon="cloud-upload-outline"
+            variant="outline"
+            loading={isSyncing}
+            onPress={() => {
+              void syncPendingMovements(store?.id).then((res) => {
+                if (res.synced > 0) {
+                  setStatusMsg(`Đã đồng bộ ${res.synced} giao dịch Offline lên máy chủ.`);
+                  refreshAll();
+                } else {
+                  setStatusMsg('Chưa kết nối được máy chủ để đồng bộ.');
+                }
+              });
+            }}
+          />
         ) : null}
       </View>
 

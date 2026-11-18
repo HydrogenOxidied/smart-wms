@@ -5,11 +5,12 @@ from pathlib import Path
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, Response
 from fastapi.staticfiles import StaticFiles
 
 from app.core.config import get_settings
 from app.core.database import Base, SessionLocal, engine
+from app.pwa_assets import MANIFEST_JSON, SERVICE_WORKER_JS
 from app.routes import auth, forecasts, imports, movements, products, stocktakes, store
 from app.seed import seed_demo_data_if_empty
 
@@ -33,7 +34,7 @@ def create_app() -> FastAPI:
     settings = get_settings()
     app = FastAPI(
         title=settings.app_name,
-        version="1.0.1",
+        version="1.0.2",
         description="Mobile-First Smart Inventory, Blind Barcode Stocktake & 3-Tier Demand Forecasting API",
         lifespan=lifespan,
     )
@@ -48,7 +49,19 @@ def create_app() -> FastAPI:
 
     @app.get(f"{settings.api_prefix}/health", tags=["Health"])
     def health_check() -> dict[str, str]:
-        return {"status": "ok", "service": "pocketwms-api", "version": "1.0.1"}
+        return {"status": "ok", "service": "pocketwms-api", "version": "1.0.2"}
+
+    @app.get("/manifest.json", include_in_schema=False)
+    def serve_manifest() -> Response:
+        return Response(content=MANIFEST_JSON, media_type="application/manifest+json")
+
+    @app.get("/sw.js", include_in_schema=False)
+    def serve_service_worker() -> Response:
+        return Response(
+            content=SERVICE_WORKER_JS,
+            media_type="text/javascript",
+            headers={"Cache-Control": "no-cache", "Service-Worker-Allowed": "/"},
+        )
 
     app.include_router(auth.router, prefix=settings.api_prefix)
     app.include_router(store.router, prefix=settings.api_prefix)

@@ -1,4 +1,4 @@
-import React, { useCallback, useState } from 'react';
+import React, { useCallback, useMemo, useState } from 'react';
 import {
   FlatList,
   KeyboardAvoidingView,
@@ -8,6 +8,7 @@ import {
   TextInput,
   View,
 } from 'react-native';
+import { useQueryClient } from '@tanstack/react-query';
 import {
   ActionButton,
   ChipOption,
@@ -16,6 +17,7 @@ import {
 } from '../components/CommonUI';
 import { api } from '../services/apiClient';
 import { useAuthStore } from '../store/authStore';
+import { useOfflineQueueStore } from '../store/offlineQueueStore';
 import { ThemePreference, useUiStore } from '../store/uiStore';
 import { RADIUS, SPACING, TOUCH_MIN } from '../theme/tokens';
 import { useTheme } from '../theme/useTheme';
@@ -29,14 +31,22 @@ const THEME_OPTIONS: ChipOption[] = [
 
 export function AccountScreen() {
   const theme = useTheme();
+  const queryClient = useQueryClient();
   const { user, store, logout } = useAuthStore();
   const { themePref, setThemePref } = useUiStore();
+  const { pending, isOfflineMode, isSyncing, syncPendingMovements } = useOfflineQueueStore();
 
   const [currentSecret, setCurrentSecret] = useState('');
   const [newSecret, setNewSecret] = useState('');
   const [confirmSecret, setConfirmSecret] = useState('');
   const [changingSecret, setChangingSecret] = useState(false);
   const [secretStatus, setSecretStatus] = useState<{ ok: boolean; text: string } | null>(null);
+  const [syncNotice, setSyncNotice] = useState<string | null>(null);
+
+  const pendingForStore = useMemo(
+    () => (store ? pending.filter((p) => p.store_id === store.id) : []),
+    [pending, store],
+  );
 
   const handleChangeSecret = useCallback(async () => {
     setSecretStatus(null);
@@ -66,10 +76,61 @@ export function AccountScreen() {
     }
   }, [currentSecret, newSecret, confirmSecret]);
 
-  const blocks = ['profile', 'security', 'theme'];
+  const handleSyncOffline = useCallback(async () => {
+    setSyncNotice(null);
+    const res = await syncPendingMovements(store?.id);
+    if (res.synced > 0) {
+      await triggerSuccessHaptic();
+      setSyncNotice(`Đã đồng bộ ${res.synced} giao dịch Offline lên máy chủ.`);
+      void queryClient.invalidateQueries({ queryKey: ['products'] });
+      void queryClient.invalidateQueries({ queryKey: ['movements'] });
+      void queryClient.invalidateQueries({ queryKey: ['movements-summary'] });
+    } else if (res.remaining === 0) {
+      setSyncNotice('Đã kết nối máy chủ, dữ liệu đã đồng bộ.');
+    } else {
+      setSyncNotice('Chưa kết nối được máy chủ để đồng bộ.');
+    }
+  }, [syncPendingMovements, store?.id, queryClient]);
+
+  const blocks = useMemo(
+    () =>
+      pendingForStore.length > 0 || isOfflineMode
+        ? ['offline_sync', 'profile', 'security', 'theme']
+        : ['profile', 'security', 'theme'],
+    [pendingForStore.length, isOfflineMode],
+  );
 
   const renderBlock = useCallback(
     ({ item }: { item: string }) => {
+      if (item === 'offline_sync') {
+        return (
+          <View style={[styles.card, { backgroundColor: theme.surface, borderColor: theme.warning }]}>
+            <View style={styles.rowBetween}>
+              <Text style={[styles.title, { color: theme.text }]}>Lưu trữ Offline & Đồng bộ</Text>
+              <StatusPill
+                text={pendingForStore.length > 0 ? `Chờ (${pendingForStore.length})` : 'Đang Offline'}
+                tone="warning"
+              />
+            </View>
+            <Text style={[styles.subText, { color: theme.textMuted }]}>
+              {pendingForStore.length > 0
+                ? `Có ${pendingForStore.length} giao dịch được lưu tạm trên máy và sẽ tự đồng bộ khi có kết nối Server.`
+                : 'Đang dùng bản lưu tạm trên máy do chưa kết nối được tới máy chủ nội bộ.'}
+            </Text>
+            {syncNotice ? (
+              <Text style={[styles.subText, { color: theme.primary }]}>{syncNotice}</Text>
+            ) : null}
+            <ActionButton
+              label="Đồng bộ ngay"
+              icon="cloud-upload-outline"
+              variant="secondary"
+              loading={isSyncing}
+              onPress={() => void handleSyncOffline()}
+            />
+          </View>
+        );
+      }
+
       if (item === 'profile') {
         return (
           <View style={[styles.card, { backgroundColor: theme.surface, borderColor: theme.border }]}>
@@ -170,6 +231,10 @@ export function AccountScreen() {
       handleChangeSecret,
       themePref,
       setThemePref,
+      pendingForStore.length,
+      isSyncing,
+      syncNotice,
+      handleSyncOffline,
     ],
   );
 

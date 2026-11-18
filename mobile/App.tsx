@@ -1,7 +1,8 @@
-import React, { useEffect, useMemo, useRef } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef } from 'react';
 import {
   ActivityIndicator,
   BackHandler,
+  Platform,
   Pressable,
   StyleSheet,
   Text,
@@ -19,7 +20,10 @@ import { ForecastScreen } from './src/screens/ForecastScreen';
 import { InventoryScreen } from './src/screens/InventoryScreen';
 import { LoginScreen } from './src/screens/LoginScreen';
 import { StocktakeScreen } from './src/screens/StocktakeScreen';
+import { isOfflineNetworkError } from './src/services/apiClient';
+import { reportNetworkStatus } from './src/services/offlineStorage';
 import { useAuthStore } from './src/store/authStore';
+import { useOfflineQueueStore } from './src/store/offlineQueueStore';
 import { TabKey, useUiStore } from './src/store/uiStore';
 import { SPACING, TOUCH_MIN } from './src/theme/tokens';
 import { useTheme } from './src/theme/useTheme';
@@ -28,8 +32,12 @@ import { triggerLightHaptic } from './src/utils/formatters';
 const queryClient = new QueryClient({
   defaultOptions: {
     queries: {
-      retry: 1,
+      networkMode: 'always',
+      retry: (failureCount, err) => !isOfflineNetworkError(err) && failureCount < 1,
       staleTime: 15000,
+    },
+    mutations: {
+      networkMode: 'always',
     },
   },
 });
@@ -91,11 +99,84 @@ function RootShell() {
   const theme = useTheme();
   const { isHydrated, user, store, hydrate } = useAuthStore();
   const { activeTab, setActiveTab } = useUiStore();
+  const {
+    pending,
+    isOfflineMode,
+    isSyncing,
+    hydrateQueue,
+    syncPendingMovements,
+  } = useOfflineQueueStore();
   const prevSessionRef = useRef<string | null>(null);
 
   useEffect(() => {
     void hydrate();
-  }, [hydrate]);
+    void hydrateQueue();
+  }, [hydrate, hydrateQueue]);
+
+  useEffect(() => {
+    if (
+      Platform.OS === 'web' &&
+      typeof window !== 'undefined' &&
+      'serviceWorker' in navigator &&
+      window.isSecureContext
+    ) {
+      navigator.serviceWorker.register('/sw.js').catch(() => undefined);
+    }
+  }, []);
+
+  const pendingForStore = useMemo(
+    () => (store ? pending.filter((p) => p.store_id === store.id) : []),
+    [pending, store],
+  );
+
+  const runSyncAndRefresh = useCallback(async () => {
+    if (!user || !store) return;
+    const result = await syncPendingMovements(store.id);
+    if (result.synced > 0) {
+      void queryClient.invalidateQueries({ queryKey: ['products'] });
+      void queryClient.invalidateQueries({ queryKey: ['movements'] });
+      void queryClient.invalidateQueries({ queryKey: ['movements-summary'] });
+      void queryClient.invalidateQueries({ queryKey: ['forecast-overview'] });
+    }
+  }, [user, store, syncPendingMovements]);
+
+  useEffect(() => {
+    if (Platform.OS !== 'web' || typeof window === 'undefined') {
+      return undefined;
+    }
+    const handleOnline = () => {
+      reportNetworkStatus(false);
+      void runSyncAndRefresh();
+    };
+    const handleOffline = () => {
+      reportNetworkStatus(true);
+    };
+    const handleFocus = () => {
+      if (navigator.onLine !== false && pendingForStore.length > 0) {
+        void runSyncAndRefresh();
+      }
+    };
+    window.addEventListener('online', handleOnline);
+    window.addEventListener('offline', handleOffline);
+    window.addEventListener('focus', handleFocus);
+    return () => {
+      window.removeEventListener('online', handleOnline);
+      window.removeEventListener('offline', handleOffline);
+      window.removeEventListener('focus', handleFocus);
+    };
+  }, [runSyncAndRefresh, pendingForStore.length]);
+
+  useEffect(() => {
+    if (!user || !store || (!isOfflineMode && pendingForStore.length === 0)) {
+      return undefined;
+    }
+    const timer = setInterval(() => {
+      if (typeof navigator === 'undefined' || navigator.onLine !== false) {
+        void runSyncAndRefresh();
+      }
+    }, 4000);
+    return () => clearInterval(timer);
+  }, [user, store, isOfflineMode, pendingForStore.length, runSyncAndRefresh]);
 
   useEffect(() => {
     const currentKey = user && store ? `${user.id}:${store.id}` : null;
@@ -165,6 +246,29 @@ function RootShell() {
             </Text>
           </View>
           <View style={styles.headerBadges}>
+            {isOfflineMode || pendingForStore.length > 0 ? (
+              <Pressable
+                onPress={() => {
+                  void triggerLightHaptic();
+                  void runSyncAndRefresh();
+                }}
+                accessibilityRole="button"
+                accessibilityLabel="Đồng bộ dữ liệu Offline"
+                android_ripple={{ color: theme.ripple }}
+                style={({ pressed }) => ({ opacity: pressed ? 0.78 : 1 })}
+              >
+                <StatusPill
+                  text={
+                    isSyncing
+                      ? 'Đang đồng bộ...'
+                      : pendingForStore.length > 0
+                        ? `Chờ đồng bộ (${pendingForStore.length})`
+                        : 'Đang Offline'
+                  }
+                  tone="warning"
+                />
+              </Pressable>
+            ) : null}
             <StatusPill
               text={user.role === 'MANAGER' ? 'Chủ kho' : 'Nhân viên'}
               tone={user.role === 'MANAGER' ? 'primary' : 'secondary'}

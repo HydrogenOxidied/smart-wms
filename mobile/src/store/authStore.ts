@@ -1,5 +1,11 @@
 import { create } from 'zustand';
-import { api, initApiBaseUrl } from '../services/apiClient';
+import { api, initApiBaseUrl, isOfflineNetworkError } from '../services/apiClient';
+import {
+  clearCachedProfile,
+  loadCachedProfile,
+  reportNetworkStatus,
+  saveCachedProfile,
+} from '../services/offlineStorage';
 import {
   clearSecureToken,
   loadSecureToken,
@@ -34,10 +40,11 @@ async function applySession(
   auth: AuthResponse,
 ): Promise<void> {
   await saveSecureToken(auth.access_token);
+  await saveCachedProfile({ user: auth.user, store: auth.store });
   set({ user: auth.user, store: auth.store, isLoading: false });
 }
 
-export const useAuthStore = create<AuthState>((set) => ({
+export const useAuthStore = create<AuthState>((set, get) => ({
   isHydrated: false,
   isLoading: false,
   user: null,
@@ -53,9 +60,19 @@ export const useAuthStore = create<AuthState>((set) => ({
     try {
       const me = await api.getMe();
       await saveSecureToken(me.access_token);
+      await saveCachedProfile({ user: me.user, store: me.store });
       set({ isHydrated: true, user: me.user, store: me.store });
-    } catch {
+    } catch (err) {
+      if (isOfflineNetworkError(err)) {
+        const cached = await loadCachedProfile();
+        if (cached?.user && cached?.store) {
+          reportNetworkStatus(true);
+          set({ isHydrated: true, user: cached.user, store: cached.store });
+          return;
+        }
+      }
       await clearSecureToken();
+      await clearCachedProfile();
       set({ isHydrated: true, user: null, store: null });
     }
   },
@@ -93,10 +110,17 @@ export const useAuthStore = create<AuthState>((set) => ({
     }
   },
 
-  setStore: (store) => set({ store }),
+  setStore: (store) => {
+    const currentUser = get().user;
+    if (currentUser) {
+      void saveCachedProfile({ user: currentUser, store });
+    }
+    set({ store });
+  },
 
   logout: async () => {
     await clearSecureToken();
+    await clearCachedProfile();
     set({ user: null, store: null });
   },
 }));

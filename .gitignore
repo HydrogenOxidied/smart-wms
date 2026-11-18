@@ -7,6 +7,7 @@ __pycache__/
 .pytest_cache/
 .mypy_cache/
 backend/logs/
+backend/backups/
 backend/bin/
 *.pid
 *.db

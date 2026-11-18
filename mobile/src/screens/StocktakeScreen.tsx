@@ -154,6 +154,7 @@ const AuditMovementCard = React.memo(
       item.movement_type === 'OUT_DAMAGE_EXPIRED' ||
       item.movement_type === 'IN_PURCHASE';
     const canReverse =
+      item.id > 0 &&
       !item.is_reversed &&
       isReversibleType &&
       (isManager || isWithinReversalWindow(item.created_at));
@@ -216,6 +217,8 @@ const AuditMovementCard = React.memo(
               <Ionicons name="arrow-undo-outline" size={16} color={theme.warning} />
               <Text style={[styles.reverseBtnText, { color: theme.text }]}>Hoàn tác</Text>
             </Pressable>
+          ) : item.id < 0 ? (
+            <StatusPill text="Chờ đồng bộ" tone="warning" />
           ) : null}
         </View>
 

@@ -69,12 +69,7 @@ def test_rbac_and_store_registration(client_and_db):
         headers=staff_headers,
     )
     assert res_forbidden.status_code == 403
-    assert client.get("/api/v1/store/remote-access", headers=staff_headers).status_code == 403
-
-    remote_res = client.get("/api/v1/store/remote-access", headers=mgr_headers)
-    assert remote_res.status_code == 200
-    assert "active" in remote_res.json()
-    assert "public_url" in remote_res.json()
+    assert client.get("/api/v1/store/remote-access", headers=mgr_headers).status_code == 404
 
     # MANAGER can toggle Lite Mode <-> Warehouse Pro Mode
     res_toggle = client.patch("/api/v1/store", json={"lite_mode": False}, headers=mgr_headers)
@@ -869,6 +864,15 @@ def test_pwa_web_static_bundle_and_assets_served(client_and_db):
 
     favicon_res = client.get("/favicon.ico")
     assert favicon_res.status_code == 200
+
+    manifest_res = client.get("/manifest.json")
+    assert manifest_res.status_code == 200
+    assert "PocketWMS" in manifest_res.text
+
+    sw_res = client.get("/sw.js")
+    assert sw_res.status_code == 200
+    assert "javascript" in sw_res.headers["content-type"]
+    assert "pocketwms-shell" in sw_res.text
 
     web_dist = Path(__file__).resolve().parents[2] / "mobile" / "dist"
     ttf_file = next((web_dist / "assets").rglob("*.ttf"))

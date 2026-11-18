@@ -203,4 +203,45 @@ test.describe.serial('PocketWMS WebApp E2E Suite', () => {
     await expect(page.getByLabel('Đóng chi tiết dự báo')).toBeVisible();
     await page.getByLabel('Đóng chi tiết dự báo').click();
   });
+
+  test('TC-07: Local offline storage, optimistic deduction, offline navigation, and auto-sync to SQLite', async ({
+    page,
+    context,
+  }) => {
+    await loginWithAccount(page, 'chu_e2e', '1234');
+    await expect(page.getByText('@chu_e2e')).toBeVisible();
+
+    await page.getByLabel('Mở tab Kho hàng').click();
+    await expect(page.getByText('Hộp nhựa E2E 500ml').first()).toBeVisible();
+    await expect(page.getByText('30 Cái').first()).toBeVisible();
+
+    await page.getByLabel('Mở tab Xuất / Nhập').click();
+    await page.getByPlaceholder('Tìm tên hoặc mã SKU...').fill('Hộp nhựa E2E 500ml');
+    await page.getByRole('button', { name: /Chọn Hộp nhựa E2E 500ml/ }).click();
+
+    await context.setOffline(true);
+    await page.evaluate(() => window.dispatchEvent(new Event('offline')));
+
+    await page.getByLabel('Ô điền số lượng').fill('3');
+    await page.getByRole('button', { name: /Xác nhận Xuất -3 Cái/ }).click();
+
+    await expect(page.getByText(/Đã lưu Offline: "Hộp nhựa E2E 500ml".*→ 27/)).toBeVisible();
+    await expect(page.getByText('Chờ đồng bộ (1)')).toBeVisible();
+
+    await page.getByLabel('Mở tab Kho hàng').click();
+    await expect(page.getByText('27 Cái').first()).toBeVisible();
+
+    await page.getByLabel('Mở tab Kiểm kê').click();
+    await expect(page.getByText(/Trước 30 → Còn 27/)).toBeVisible();
+    await expect(page.getByText('Chờ đồng bộ').first()).toBeVisible();
+
+    await context.setOffline(false);
+    await page.evaluate(() => window.dispatchEvent(new Event('online')));
+    await expect(page.getByText('Chờ đồng bộ (1)')).toHaveCount(0, { timeout: 10000 });
+
+    await page.reload();
+    await expect(page.getByText('@chu_e2e')).toBeVisible();
+    await page.getByLabel('Mở tab Kho hàng').click();
+    await expect(page.getByText('27 Cái').first()).toBeVisible();
+  });
 });
