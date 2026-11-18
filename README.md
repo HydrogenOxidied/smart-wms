@@ -32,13 +32,17 @@
 ## 2. Chạy thử & Vận hành trên Windows (Local / Wi-Fi LAN)
 
 ### Khởi động & Quản lý chỉ bằng 1 file duy nhất (`start-wms.bat`)
-- **`start-wms.bat`**: Bấm đúp để tự động bật ngầm Backend nội bộ (cổng `8000`), tự copy địa chỉ Wi-Fi LAN `http://<LAN-IP>:8000` vào clipboard, **hiển thị sẵn mã QR độ tương phản cao** ngay trong cửa sổ console để điện thoại cùng Wi-Fi quét kết nối nhanh (hoặc mở `http://localhost:8000` trực tiếp trên máy tính để dùng full PWA Offline), và cung cấp menu thao tác nhanh:
+- **Tự động cài đặt Pre-install nếu máy chưa có Python:** Khi chạy `start-wms.bat` lần đầu trên máy tính chưa có Python hoặc chưa có `backend\.venv`, script sẽ tự động:
+  1. Quét Python 3.10–3.13 trên máy (tự bỏ qua stub `Microsoft\WindowsApps\python.exe` của Microsoft Store).
+  2. Nếu máy **chưa có Python**, tự động tải & cài đặt **Python 3.12 (per-user, không cần quyền Admin)** qua `winget` hoặc trình cài đặt có chữ ký số từ `python.org`.
+  3. Tạo môi trường ảo `backend\.venv` và cài toàn bộ thư viện trong `backend\requirements.txt`.
+- **`start-wms.bat`**: Bấm đúp để tự động kiểm tra pre-install, bật ngầm Backend nội bộ (cổng `8000`), tự copy địa chỉ Wi-Fi LAN `http://<LAN-IP>:8000` vào clipboard, **hiển thị sẵn mã QR độ tương phản cao** ngay trong cửa sổ console để điện thoại cùng Wi-Fi quét kết nối nhanh (hoặc mở `http://localhost:8000` trực tiếp trên máy tính để dùng full PWA Offline), và cung cấp menu thao tác nhanh:
   - **`[Enter]`**: Đóng cửa sổ (Backend tiếp tục chạy ngầm).
   - **`[1]`**: Bật Server / Hiển thị lại mã QR Wi-Fi LAN.
   - **`[2]`**: Tắt toàn bộ Backend Server.
   - **`[3]`**: Bật / Tắt tự khởi động ngầm cùng Windows (qua `scripts\start-hidden.vbs`).
   - **`[4]`**: Kiểm tra & tự động cập nhật bản `.zip` mới nhất từ GitHub Releases — **tự động `PRAGMA wal_checkpoint(TRUNCATE)`, sao lưu `smart_wms.db` vào `backend\backups\`, bỏ qua ghi đè database khi giải nén và tự kiểm tra `PRAGMA quick_check` sau cập nhật**.
-- Hỗ trợ chạy nhanh qua dòng lệnh: `start-wms.bat status`, `start-wms.bat stop`, `start-wms.bat check-update`, `start-wms.bat update`, `start-wms.bat install-autostart`.
+- Hỗ trợ chạy nhanh qua dòng lệnh: `start-wms.bat setup`, `start-wms.bat status`, `start-wms.bat stop`, `start-wms.bat check-update`, `start-wms.bat update`, `start-wms.bat install-autostart`.
 
 *(Để phát triển frontend Expo Metro cục bộ, chạy `npx expo start` trong thư mục `mobile/`. Để chạy kiểm thử E2E Playwright trên trình duyệt, chạy `npm test` trong thư mục `e2e/`.)*
 

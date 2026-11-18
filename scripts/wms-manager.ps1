@@ -1,6 +1,6 @@
 [CmdletBinding()]
 param(
-    [ValidateSet('launcher', 'start', 'start-silent', 'stop', 'status', 'check-update', 'update', 'install-autostart', 'remove-autostart')]
+    [ValidateSet('launcher', 'start', 'start-silent', 'setup', 'stop', 'status', 'check-update', 'update', 'install-autostart', 'remove-autostart')]
     [string]$Action = 'launcher'
 )
 
@@ -14,7 +14,10 @@ $VersionFile = Join-Path $RootDir 'VERSION'
 $GitHubRepo = 'HydrogenOxidied/smart-wms'
 $Script:CachedUpdateInfo = $null
 $BackendDir = Join-Path $RootDir 'backend'
-$PythonExe = Join-Path $BackendDir '.venv\Scripts\python.exe'
+$VenvDir = Join-Path $BackendDir '.venv'
+$PythonExe = Join-Path $VenvDir 'Scripts\python.exe'
+$ReqFile = Join-Path $BackendDir 'requirements.txt'
+$ReqHashFile = Join-Path $VenvDir '.requirements.sha256'
 $QrScript = Join-Path $ScriptsDir 'qr_matrix.py'
 $LogsDir = Join-Path $BackendDir 'logs'
 $BackupsDir = Join-Path $BackendDir 'backups'
@@ -66,6 +69,304 @@ function Get-ListeningPort8000Pid {
     return $null
 }
 
+function Refresh-ProcessPath {
+    $userPath = [Environment]::GetEnvironmentVariable('Path', 'User')
+    $machinePath = [Environment]::GetEnvironmentVariable('Path', 'Machine')
+    $parts = @($userPath, $machinePath, $env:Path) | Where-Object { $_ -and ($_.Trim().Length -gt 0) }
+    $env:Path = ($parts -join ';')
+}
+
+function Invoke-NativeQuiet {
+    param(
+        [string]$ExePath,
+        [string[]]$ArgumentList,
+        [switch]$SuppressOutput
+    )
+    if ((-not $ExePath) -or (-not (Test-Path $ExePath))) {
+        return 1
+    }
+    $prevEap = $ErrorActionPreference
+    $ErrorActionPreference = 'Continue'
+    try {
+        if ($SuppressOutput) {
+            & $ExePath @ArgumentList 2>$null | Out-Null
+        } else {
+            & $ExePath @ArgumentList 2>&1 | Out-Host
+        }
+        return [int]$LASTEXITCODE
+    } catch {
+        return 1
+    } finally {
+        $ErrorActionPreference = $prevEap
+    }
+}
+
+function Test-PythonImports {
+    param(
+        [string]$ExePath,
+        [string]$ImportExpr = 'import sys'
+    )
+    return ((Invoke-NativeQuiet -ExePath $ExePath -ArgumentList @('-c', $ImportExpr) -SuppressOutput) -eq 0)
+}
+
+function Test-UsableSystemPython {
+    param([string]$CandidatePath)
+
+    if ((-not $CandidatePath) -or (-not (Test-Path $CandidatePath))) {
+        return $false
+    }
+    if ($CandidatePath -match '[\\/]Microsoft[\\/]WindowsApps[\\/]') {
+        return $false
+    }
+    $prevEap = $ErrorActionPreference
+    $ErrorActionPreference = 'Continue'
+    try {
+        $verOut = & $CandidatePath -c "import sys, venv, sqlite3; print('%d.%d' % (sys.version_info[0], sys.version_info[1]))" 2>$null
+        if ($LASTEXITCODE -ne 0) {
+            return $false
+        }
+        $verText = ([string]($verOut | Select-Object -First 1)).Trim()
+        if ($verText -match '^(\d+)\.(\d+)$') {
+            $maj = [int]$Matches[1]
+            $min = [int]$Matches[2]
+            return (($maj -gt 3) -or (($maj -eq 3) -and ($min -ge 10)))
+        }
+        return $false
+    } catch {
+        return $false
+    } finally {
+        $ErrorActionPreference = $prevEap
+    }
+}
+
+function Resolve-SystemPython {
+    Refresh-ProcessPath
+
+    $candidates = New-Object System.Collections.Generic.List[string]
+    $seen = New-Object 'System.Collections.Generic.HashSet[string]' ([System.StringComparer]::OrdinalIgnoreCase)
+
+    $addCandidate = {
+        param([string]$PathToAdd)
+        if ($PathToAdd -and ($PathToAdd.Trim().Length -gt 0)) {
+            $trimmed = $PathToAdd.Trim()
+            if ($seen.Add($trimmed)) {
+                [void]$candidates.Add($trimmed)
+            }
+        }
+    }
+
+    foreach ($verDir in @('Python313', 'Python312', 'Python311', 'Python310')) {
+        if ($env:LOCALAPPDATA) {
+            & $addCandidate (Join-Path $env:LOCALAPPDATA ("Programs\Python\$verDir\python.exe"))
+        }
+        if ($env:ProgramFiles) {
+            & $addCandidate (Join-Path $env:ProgramFiles ("$verDir\python.exe"))
+        }
+    }
+
+    $searchRoots = @()
+    if ($env:LOCALAPPDATA) {
+        $searchRoots += (Join-Path $env:LOCALAPPDATA 'Programs\Python')
+    }
+    if ($env:ProgramFiles) {
+        $searchRoots += $env:ProgramFiles
+    }
+    $searchRoots += 'C:\'
+
+    foreach ($baseRoot in $searchRoots) {
+        if ($baseRoot -and (Test-Path $baseRoot)) {
+            $dirs = Get-ChildItem -Path $baseRoot -Directory -Filter 'Python3*' -ErrorAction SilentlyContinue |
+                Sort-Object Name -Descending
+            foreach ($d in $dirs) {
+                & $addCandidate (Join-Path $d.FullName 'python.exe')
+            }
+        }
+    }
+
+    $pyLaunchers = New-Object System.Collections.Generic.List[string]
+    $pyCmd = Get-Command py -ErrorAction SilentlyContinue
+    if ($pyCmd -and $pyCmd.Source) {
+        [void]$pyLaunchers.Add($pyCmd.Source)
+    }
+    if ($env:LOCALAPPDATA) {
+        $userPyLauncher = Join-Path $env:LOCALAPPDATA 'Programs\Python\Launcher\py.exe'
+        if (Test-Path $userPyLauncher) { [void]$pyLaunchers.Add($userPyLauncher) }
+    }
+    if ($env:WINDIR) {
+        $winPyLauncher = Join-Path $env:WINDIR 'py.exe'
+        if (Test-Path $winPyLauncher) { [void]$pyLaunchers.Add($winPyLauncher) }
+    }
+    $prevEap = $ErrorActionPreference
+    $ErrorActionPreference = 'Continue'
+    try {
+        foreach ($launcherExe in $pyLaunchers) {
+            foreach ($flag in @('-3.12', '-3.13', '-3.11', '-3.10', '-3')) {
+                try {
+                    $exeOut = & $launcherExe $flag -c "import sys; print(sys.executable)" 2>$null
+                    if (($LASTEXITCODE -eq 0) -and $exeOut) {
+                        & $addCandidate ([string]($exeOut | Select-Object -First 1))
+                    }
+                } catch {}
+            }
+        }
+    } finally {
+        $ErrorActionPreference = $prevEap
+    }
+
+    foreach ($cmdName in @('python', 'python3')) {
+        $cmds = Get-Command $cmdName -All -ErrorAction SilentlyContinue
+        foreach ($c in $cmds) {
+            if ($c.Source -and ($c.Source -notmatch '[\\/]Microsoft[\\/]WindowsApps[\\/]')) {
+                & $addCandidate $c.Source
+            }
+        }
+    }
+
+    foreach ($cand in $candidates) {
+        if (Test-UsableSystemPython -CandidatePath $cand) {
+            return $cand
+        }
+    }
+    return $null
+}
+
+function Install-PythonRuntime {
+    Write-Host '[PRE-INSTALL 1/3] May chua co Python (>= 3.10). Dang tu dong cai dat Python 3.12 (khong can quyen Admin)...' -ForegroundColor Yellow
+
+    $winget = Get-Command winget -ErrorAction SilentlyContinue
+    if ($winget -and $winget.Source) {
+        Write-Host '[PRE-INSTALL] Thu cai dat nhanh qua Windows Package Manager (winget)...' -ForegroundColor Cyan
+        try {
+            $wgProc = Start-Process -FilePath $winget.Source `
+                -ArgumentList 'install', '-e', '--id', 'Python.Python.3.12', '--scope', 'user', '--accept-package-agreements', '--accept-source-agreements', '--disable-interactivity' `
+                -NoNewWindow -Wait -PassThru
+            $foundAfterWg = Resolve-SystemPython
+            if ($foundAfterWg) {
+                Write-Host "[OK] Da cai dat Python thanh cong qua winget: $foundAfterWg" -ForegroundColor Green
+                return $foundAfterWg
+            }
+            Write-Warning "winget ket thuc (exit=$($wgProc.ExitCode)) nhung chua thay Python. Chuyen sang tai goi chinh thuc tu python.org..."
+        } catch {
+            Write-Warning "Khong the dung winget ($($_)). Chuyen sang tai goi chinh thuc tu python.org..."
+        }
+    }
+
+    $pyUrl = 'https://www.python.org/ftp/python/3.12.10/python-3.12.10-amd64.exe'
+    if (([string]$env:PROCESSOR_ARCHITECTURE).ToUpperInvariant() -eq 'ARM64') {
+        $pyUrl = 'https://www.python.org/ftp/python/3.12.10/python-3.12.10-arm64.exe'
+    } elseif (-not ([Environment]::Is64BitOperatingSystem)) {
+        $pyUrl = 'https://www.python.org/ftp/python/3.12.10/python-3.12.10.exe'
+    }
+
+    $installerExe = Join-Path $env:TEMP 'pocketwms-python-3.12.10-setup.exe'
+    Remove-Item $installerExe -Force -ErrorAction SilentlyContinue
+
+    try {
+        Write-Host "[PRE-INSTALL] Dang tai trinh cai dat chinh thuc: $pyUrl" -ForegroundColor Cyan
+        $curlCmd = Get-Command curl.exe -ErrorAction SilentlyContinue
+        if ($curlCmd -and $curlCmd.Source) {
+            & $curlCmd.Source -fL --retry 3 --connect-timeout 15 -o $installerExe $pyUrl | Out-Host
+        } else {
+            Invoke-WebRequest -Uri $pyUrl -OutFile $installerExe -UseBasicParsing -TimeoutSec 180
+        }
+
+        if ((-not (Test-Path $installerExe)) -or ((Get-Item $installerExe).Length -lt 10MB)) {
+            throw 'File cai dat Python tai ve bi thieu hoac khong hop le.'
+        }
+
+        $sig = Get-AuthenticodeSignature -FilePath $installerExe -ErrorAction SilentlyContinue
+        if ((-not $sig) -or ($sig.Status -ne 'Valid')) {
+            throw 'Chu ky so cua trinh cai dat Python khong hop le; tu choi chay vi ly do bao mat.'
+        }
+
+        $targetPyDir = Join-Path $env:LOCALAPPDATA 'Programs\Python\Python312'
+        Write-Host '[PRE-INSTALL] Dang cai dat ngam Python 3.12 cho tai khoan hien tai (vui long cho)...' -ForegroundColor Cyan
+        $instProc = Start-Process -FilePath $installerExe `
+            -ArgumentList '/quiet', 'InstallAllUsers=0', 'PrependPath=1', 'Include_pip=1', 'Include_venv=1', 'Include_tcltk=0', 'Include_test=0', 'Include_doc=0', 'Shortcuts=0', ("TargetDir=" + $targetPyDir) `
+            -Wait -PassThru
+        if ($instProc.ExitCode -ne 0) {
+            throw "Trinh cai dat Python tra ve ma loi $($instProc.ExitCode)."
+        }
+
+        $foundAfterOrg = Resolve-SystemPython
+        if (-not $foundAfterOrg) {
+            throw "Da cai dat Python nhung khong tim thay python.exe tai $targetPyDir."
+        }
+        Write-Host "[OK] Da cai dat Python thanh cong: $foundAfterOrg" -ForegroundColor Green
+        return $foundAfterOrg
+    } catch {
+        throw "Khong the tu dong cai dat Python ($($_)). Vui long cai thu cong Python 3.12+ (tick 'Add python.exe to PATH') tu https://www.python.org/downloads/"
+    } finally {
+        Remove-Item $installerExe -Force -ErrorAction SilentlyContinue
+    }
+}
+
+function Ensure-PythonEnvironment {
+    param([switch]$ForceSyncDeps)
+
+    $expectedHash = if (Test-Path $ReqFile) { (Get-FileHash -Path $ReqFile -Algorithm SHA256).Hash } else { '' }
+
+    if ((-not $ForceSyncDeps) -and (Test-Path $PythonExe)) {
+        $savedHash = Read-TextTrimmed -Path $ReqHashFile
+        if ($expectedHash -and ($savedHash -eq $expectedHash)) {
+            if (Test-PythonImports -ExePath $PythonExe -ImportExpr 'import fastapi, uvicorn') {
+                return $true
+            }
+        } else {
+            if (Test-PythonImports -ExePath $PythonExe -ImportExpr 'import fastapi, uvicorn, sqlalchemy, numpy, qrcode, bcrypt, jwt') {
+                if ($expectedHash) {
+                    Write-TextNoBom -Path $ReqHashFile -Value $expectedHash
+                }
+                return $true
+            }
+        }
+    }
+
+    $venvPythonOk = Test-PythonImports -ExePath $PythonExe -ImportExpr 'import sys'
+    if (-not $venvPythonOk) {
+        $sysPy = Resolve-SystemPython
+        if (-not $sysPy) {
+            $sysPy = Install-PythonRuntime
+        } else {
+            Write-Host "[PRE-INSTALL 1/3] Da tim thay Python he thong: $sysPy" -ForegroundColor Cyan
+        }
+
+        if (Test-Path $VenvDir) {
+            Write-Host '[PRE-INSTALL] Dang lam sach moi truong ao .venv bi loi...' -ForegroundColor Yellow
+            Remove-Item $VenvDir -Recurse -Force -ErrorAction SilentlyContinue
+        }
+
+        Write-Host "[PRE-INSTALL 2/3] Dang tao moi truong ao backend\.venv..." -ForegroundColor Cyan
+        $venvExit = Invoke-NativeQuiet -ExePath $sysPy -ArgumentList @('-m', 'venv', $VenvDir)
+        if (($venvExit -ne 0) -or (-not (Test-Path $PythonExe))) {
+            throw "Tao moi truong ao .venv that bai voi $sysPy"
+        }
+    }
+
+    if ((Invoke-NativeQuiet -ExePath $PythonExe -ArgumentList @('-m', 'pip', '--version') -SuppressOutput) -ne 0) {
+        Write-Host '[PRE-INSTALL] Dang khoi phuc pip cho moi truong ao...' -ForegroundColor Cyan
+        if ((Invoke-NativeQuiet -ExePath $PythonExe -ArgumentList @('-m', 'ensurepip', '--upgrade')) -ne 0) {
+            throw 'Khong the khoi tao pip trong backend\.venv'
+        }
+    }
+
+    if (Test-Path $ReqFile) {
+        Write-Host '[PRE-INSTALL 3/3] Dang cai dat / dong bo thu vien Python (FastAPI, SQLAlchemy, NumPy, QR)...' -ForegroundColor Cyan
+        if ((Invoke-NativeQuiet -ExePath $PythonExe -ArgumentList @('-m', 'pip', 'install', '--disable-pip-version-check', '--prefer-binary', '-r', $ReqFile)) -ne 0) {
+            throw 'Cai dat thu vien tu backend\requirements.txt that bai. Vui long kiem tra ket noi mang.'
+        }
+    }
+
+    if (-not (Test-PythonImports -ExePath $PythonExe -ImportExpr 'import fastapi, uvicorn, sqlalchemy, numpy, qrcode, bcrypt, jwt')) {
+        throw 'Thieu module Python bat buoc sau khi cai dat backend\requirements.txt'
+    }
+
+    if ($expectedHash) {
+        Write-TextNoBom -Path $ReqHashFile -Value $expectedHash
+    }
+    return $true
+}
+
 function Ensure-Backend {
     if (Test-LocalHealth) {
         $ownerPid = Get-ListeningPort8000Pid
@@ -75,9 +376,7 @@ function Ensure-Backend {
         return $true
     }
 
-    if (-not (Test-Path $PythonExe)) {
-        throw "Khong tim thay Python venv tai $PythonExe"
-    }
+    [void](Ensure-PythonEnvironment)
 
     $stalePortPid = Get-ListeningPort8000Pid
     if ($stalePortPid) {
@@ -454,10 +753,9 @@ function Invoke-ApplyReleaseUpdate {
         Write-TextNoBom -Path $VersionFile -Value $UpdateInfo.RemoteVer
     }
 
-    $reqFile = Join-Path $BackendDir 'requirements.txt'
-    if ((Test-Path $PythonExe) -and (Test-Path $reqFile)) {
-        Write-Host '[4/4] Dang dong bo thu vien Python backend...'
-        & $PythonExe -m pip install -r $reqFile --quiet
+    if (Test-Path $ReqFile) {
+        Write-Host '[4/4] Dang kiem tra Python & dong bo thu vien backend...'
+        [void](Ensure-PythonEnvironment -ForceSyncDeps)
     }
 
     Remove-Item $tempZip -Force -ErrorAction SilentlyContinue
@@ -645,6 +943,10 @@ switch ($Action) {
     'start-silent' {
         Repair-LegacyAutostart
         [void](Ensure-Backend)
+    }
+    'setup' {
+        [void](Ensure-PythonEnvironment)
+        Write-Host '[OK] Moi truong Python & thu vien Backend da san sang!' -ForegroundColor Green
     }
     'stop' {
         Invoke-StopAll

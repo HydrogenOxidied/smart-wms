@@ -23,7 +23,7 @@ MANIFEST_JSON = json.dumps(
     indent=2,
 )
 
-SERVICE_WORKER_JS = r"""const CACHE_NAME = "pocketwms-shell-v1.0.2";
+SERVICE_WORKER_JS = r"""const CACHE_NAME = "pocketwms-shell-v1.0.3";
 const CORE_ASSETS = ["/", "/web/", "/favicon.ico", "/manifest.json"];
 
 self.addEventListener("install", (event) => {

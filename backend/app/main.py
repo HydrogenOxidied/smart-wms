@@ -34,7 +34,7 @@ def create_app() -> FastAPI:
     settings = get_settings()
     app = FastAPI(
         title=settings.app_name,
-        version="1.0.2",
+        version="1.0.3",
         description="Mobile-First Smart Inventory, Blind Barcode Stocktake & 3-Tier Demand Forecasting API",
         lifespan=lifespan,
     )
@@ -49,7 +49,7 @@ def create_app() -> FastAPI:
 
     @app.get(f"{settings.api_prefix}/health", tags=["Health"])
     def health_check() -> dict[str, str]:
-        return {"status": "ok", "service": "pocketwms-api", "version": "1.0.2"}
+        return {"status": "ok", "service": "pocketwms-api", "version": "1.0.3"}
 
     @app.get("/manifest.json", include_in_schema=False)
     def serve_manifest() -> Response:
